@@ -9,4 +9,4 @@ Rebuilt on 2026-11-17 from the published v2.23.2 build (the original TypeScript 
 
 Build: `node build.mjs [out.html]` (needs esbuild) → `dist/index.html`, the single-file app that is published.
 
-Releases: every change bumps the version (`Xn`) and adds a changelog entry (`Pu`) in `src/margin.js`, minor for features, patch for fixes; each release is one commit on `develop`, tagged `vX.Y.Z`.
+Releases: every change bumps the version (`Xn`) and adds a changelog entry (`Pu`) in `src/margin.js`, minor for features, patch for fixes; each release is one commit on `develop` whose title starts with `vX.Y.Z`.
