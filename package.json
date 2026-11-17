@@ -1,0 +1,23 @@
+{
+  "name": "margin-pdf-editor",
+  "private": true,
+  "version": "2.24.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc",
+    "build": "tsc && vite build && node scripts/artifact.mjs",
+    "test": "node tests/run.mjs"
+  },
+  "dependencies": {
+    "@embedpdf/pdfium": "^2.15.1",
+    "harfbuzzjs": "1.6.3",
+    "nspell": "^2.1.5"
+  },
+  "devDependencies": {
+    "@types/nspell": "^2.1.6",
+    "typescript": "5.8",
+    "vite": "^6.4.6",
+    "vite-plugin-singlefile": "^2.3.4"
+  }
+}
