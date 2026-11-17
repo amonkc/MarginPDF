@@ -1,0 +1,63 @@
+
+<div id="app">
+  <header class="bar">
+    <div class="brand"><span class="mark">Margin<b>.</b></span></div>
+    <div class="file"><span id="file-name" class="fname">Loading…</span><span id="dirty" class="dirty" hidden title="Unsaved changes">Edited</span></div>
+    <div class="bar-group">
+      <button class="iconbtn" id="btn-open" type="button" title="Open PDF (Ctrl+O)" aria-label="Open PDF"><span class="ic" data-i="open"></span></button>
+      <button class="iconbtn" id="btn-print" type="button" title="Print (Ctrl+P)" aria-label="Print"><span class="ic" data-i="print"></span></button>
+      <button class="iconbtn" id="btn-hf" type="button" title="Header &amp; footer, page numbers" aria-label="Header and footer"><span class="ic" data-i="hf"></span></button>
+      <button class="iconbtn" id="btn-wm" type="button" title="Watermark &amp; background" aria-label="Watermark and background"><span class="ic" data-i="watermark"></span></button>
+      <button class="iconbtn" id="btn-protect" type="button" title="Password protection" aria-label="Password protection"><span class="ic" data-i="lock"></span></button>
+      <button class="iconbtn" id="btn-flatten" type="button" title="Flatten comments and form fields" aria-label="Flatten"><span class="ic" data-i="flatten"></span></button>
+      <button class="iconbtn" id="btn-merge" type="button" title="Insert pages from other PDFs" aria-label="Insert pages from other PDFs"><span class="ic" data-i="merge"></span></button>
+      <button class="iconbtn" id="btn-more" type="button" title="More tools" aria-label="More tools" aria-haspopup="menu"><span class="ic" data-i="more"></span></button>
+    </div>
+    <div class="bar-group">
+      <button class="iconbtn" id="btn-undo" type="button" aria-label="Undo" disabled><span class="ic" data-i="undo"></span></button>
+      <button class="iconbtn" id="btn-redo" type="button" aria-label="Redo" disabled><span class="ic" data-i="redo"></span></button>
+    </div>
+    <div class="bar-group zoom">
+      <button class="iconbtn" id="btn-zoomout" type="button" title="Zoom out" aria-label="Zoom out"><span class="ic" data-i="zoomout"></span></button>
+      <span id="zoom-level" class="zoom-level">100%</span>
+      <button class="iconbtn" id="btn-zoomin" type="button" title="Zoom in" aria-label="Zoom in"><span class="ic" data-i="zoomin"></span></button>
+      <button class="iconbtn" id="btn-fit" type="button" title="Fit width (Ctrl+0)" aria-label="Fit width"><span class="ic" data-i="fit"></span></button>
+    </div>
+    <div class="search" role="search">
+      <span class="ic" data-i="search"></span>
+      <input id="search-input" type="search" placeholder="Search" aria-label="Search the document" autocomplete="off" />
+      <span id="search-count" class="search-count" aria-live="polite"></span>
+      <button class="iconbtn small" id="search-prev" type="button" aria-label="Previous match"><span class="ic" data-i="up"></span></button>
+      <button class="iconbtn small" id="search-next" type="button" aria-label="Next match"><span class="ic" data-i="down"></span></button>
+      <button class="iconbtn small" id="btn-replace" type="button" title="Find &amp; replace (Ctrl+H)" aria-label="Find and replace" aria-expanded="false"><span class="ic" data-i="replace"></span></button>
+      <div id="replace-panel" class="replace-panel" hidden>
+        <input id="replace-input" type="text" placeholder="Replace with" aria-label="Replace with" autocomplete="off" />
+        <div class="replace-row">
+          <label class="hf-check"><input type="checkbox" id="rp-case" />Match case</label>
+          <label class="hf-check"><input type="checkbox" id="rp-word" />Whole words</label>
+        </div>
+        <div class="replace-row">
+          <button class="btn ghost small" id="rp-one" type="button">Replace</button>
+          <button class="btn primary small" id="rp-all" type="button">Replace all</button>
+        </div>
+        <p class="replace-note" id="rp-status">Each line keeps its font and position. Matches across line breaks are skipped.</p>
+      </div>
+    </div>
+    <div class="bar-group end">
+      <button class="iconbtn only-narrow" id="btn-pages" type="button" aria-label="Show pages"><span class="ic" data-i="pages"></span></button>
+      <button class="iconbtn only-narrow" id="btn-comments" type="button" aria-label="Show comments"><span class="ic" data-i="comments"></span></button>
+      <button class="btn primary" id="btn-save" type="button" title="Save a copy (Ctrl+S)"><span class="ic" data-i="save"></span><span class="save-label">Save PDF</span></button>
+    </div>
+  </header>
+  <div id="ribbon" class="ribbon" aria-label="Tool options"></div>
+  <div class="main">
+    <nav id="rail" class="rail" aria-label="Tools"></nav>
+    <aside id="thumbs" class="side thumbs" aria-label="Pages"></aside>
+    <section id="viewer" class="viewer" aria-label="Document"></section>
+    <aside id="comments" class="side comments" aria-label="Comments"></aside>
+  </div>
+  <div class="statusbar"><span id="page-indicator" class="mono">– / –</span><span class="status-hint">Edits happen in your browser. Files are not uploaded.</span><button class="version" id="btn-version" type="button" title="What's new">v–</button></div>
+  <div id="boot" class="boot"><div class="boot-card"><span class="mark">Margin<b>.</b></span><p id="boot-status">Loading…</p><span class="mono boot-version" id="boot-version"></span><div class="boot-bar"><i></i></div></div></div>
+</div>
+<div id="modal-host" class="modal-host" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
