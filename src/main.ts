@@ -1,4 +1,5 @@
 import "./style.css";
+import "virtual:ui-fonts";
 import { App, FULL_SAVE_MAX } from "./app";
 import { CHANGELOG, VERSION } from "./changelog";
 import { loadAsset } from "./engine/assets";
@@ -1543,6 +1544,10 @@ async function main(): Promise<void> {
             h("ul", {}, ...release.notes.map((note) => h("li", { text: note }))),
           ),
         ),
+        // the web build serves the third-party licence notices (scripts/web.mjs); the artifact has no files to link
+        import.meta.env.MODE === "web"
+          ? h("p", { class: "hint" }, h("a", { href: "/licenses/THIRD_PARTY_NOTICES.txt", target: "_blank", rel: "noopener", text: "Open-source licences" }))
+          : null,
       ),
       actions: [{ id: "ok", label: "Close", primary: true }],
     }),

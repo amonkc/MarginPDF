@@ -10,6 +10,14 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.25.0",
+    date: "2026-11-18",
+    notes: [
+      "Margin can now be hosted as a normal website (on Cloudflare), updating itself whenever a new version is pushed. The site loads its interface fonts from itself rather than Google, so using it sends nothing to other companies, and your documents still never leave your device.",
+      "On the website, Margin downloads about 2.5 MB once and is cached afterwards; fonts for PDFs and the spelling dictionary download only when first used. The What's new window links to the open-source licences.",
+    ],
+  },
+  {
     version: "2.24.2",
     date: "2026-11-18",
     notes: [
@@ -408,6 +416,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.24.2";
+const VERSION = "2.25.0";
 
 export { CHANGELOG, VERSION };

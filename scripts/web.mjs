@@ -1,0 +1,79 @@
+// Turns `vite build --mode web` (web/) into the deployable static site for Cloudflare (Workers static assets):
+//  - copies public/ into web/a/ under content-hashed names and lists them in index.html (engine/assets.ts reads
+//    the list), so every asset can be cached by browsers and Cloudflare for a year and is downloaded once;
+//  - writes web/_headers: long caching for hashed files, revalidation for index.html, security headers, and a
+//    text content type for the spelling dictionary so Cloudflare compresses it;
+//  - copies the third-party licence notices to web/licenses/.
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+
+const out = 'web';
+const files = [];
+const walk = (dir) => { for (const f of fs.readdirSync(dir).sort()) { const p = path.join(dir, f); fs.statSync(p).isDirectory() ? walk(p) : files.push(p); } };
+walk('public');
+const map = {};
+let bytes = 0;
+for (const src of files) {
+  const rel = path.relative('public', src).split(path.sep).join('/');
+  const data = fs.readFileSync(src);
+  const hash = crypto.createHash('sha256').update(data).digest('hex').slice(0, 10);
+  const ext = path.extname(rel), hashed = `a/${rel.slice(0, rel.length - ext.length)}.${hash}${ext}`;
+  fs.mkdirSync(path.join(out, path.dirname(hashed)), { recursive: true });
+  fs.copyFileSync(src, path.join(out, hashed));
+  map[rel] = '/' + hashed;
+  bytes += data.length;
+}
+const indexPath = path.join(out, 'index.html');
+let html = fs.readFileSync(indexPath, 'utf8');
+const tag = `<script type="application/json" id="margin-assets">${JSON.stringify(map)}</script>`;
+html = html.replace('</head>', `${tag}\n</head>`);
+fs.writeFileSync(indexPath, html);
+
+// Content-Security-Policy: everything from this site only; wasm needs 'wasm-unsafe-eval'; page images and saved
+// files use blob: URLs; signatures and previews use data: URLs; inline styles are set from script.
+const csp = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' blob: data:",
+  "font-src 'self' data:",
+  "connect-src 'self' blob: data:",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+  "frame-ancestors 'self'",
+].join('; ');
+const headers = `/*
+  Content-Security-Policy: ${csp}
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Cross-Origin-Opener-Policy: same-origin
+
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/a/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/a/dict/*
+  Content-Type: text/plain; charset=utf-8
+
+/licenses/*
+  Cache-Control: public, max-age=86400
+`;
+fs.writeFileSync(path.join(out, '_headers'), headers);
+
+fs.mkdirSync(path.join(out, 'licenses'), { recursive: true });
+for (const f of fs.readdirSync('licenses')) fs.copyFileSync(path.join('licenses', f), path.join(out, 'licenses', f));
+
+const total = (dir) => fs.readdirSync(dir).reduce((n, f) => { const p = path.join(dir, f); return n + (fs.statSync(p).isDirectory() ? total(p) : fs.statSync(p).size); }, 0);
+console.log(`${out}/: ${files.length} assets (${(bytes / 1e6).toFixed(1)} MB), site ${(total(out) / 1e6).toFixed(1)} MB`);

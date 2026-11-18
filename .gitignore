@@ -1,4 +1,6 @@
 dist/
 artifact/
+web/
 node_modules/
 .rename/
+.wrangler/
