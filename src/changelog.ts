@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.25.4",
+    date: "2026-11-18",
+    notes: ["Move & resize now selects the object you can see in front: clicking an image that covers text picks the image, not the text behind it. To reach something hidden behind, Alt-click (Option-click on a Mac) at the same spot."],
+  },
+  {
     version: "2.25.3",
     date: "2026-11-18",
     notes: ["Margin is now only a website: the single-page claude.ai version is retired, and the app no longer contains the code that version needed."],
@@ -433,6 +438,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.25.3";
+const VERSION = "2.25.4";
 
 export { CHANGELOG, VERSION };

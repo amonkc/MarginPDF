@@ -183,6 +183,20 @@ await page.locator('.modal .btn.primary').click(); await page.waitForTimeout(500
 log('print empty range message', await page.locator('#toast').innerText());
 await page.keyboard.press('Escape'); await M(() => document.querySelector('.modal-host:not([hidden]) .modal-scrim')?.click()); await page.waitForTimeout(300);
 
+// K. Move & resize picks what's in front: an image placed over a line of text, then Alt-click for the text behind
+const over = await M(async () => {
+  const { app, viewer, arrange } = window.__margin; const pv = viewer.views[0];
+  const line = arrange.itemsOf(pv).find((it) => it.kind === 'line'); const b = line.bounds;
+  await app.mutate('img', { pages: [0] }, () => app.doc.addImage(0, [b.r - b.l + 40, 0, 0, b.t - b.b + 40, b.l - 20, b.b - 20], { rgba: new Uint8ClampedArray(4 * 4).fill(200), w: 2, h: 2 }));
+  app.setTool('arrange'); pv.ov.scrollIntoView({ block: 'start' }); await new Promise((r) => setTimeout(r, 400));
+  const bx = pv.tf.box(b), o = pv.ov.getBoundingClientRect(); return { x: o.x + bx.x + bx.w / 2, y: o.y + bx.y + bx.h / 2 };
+});
+const picked = () => M(() => window.__margin.arrange.selected().map((it) => it.label).join());
+await page.mouse.click(over.x, over.y); await page.waitForTimeout(300); const front = await picked();
+await page.keyboard.down('Alt'); await page.mouse.click(over.x, over.y); await page.keyboard.up('Alt'); await page.waitForTimeout(300);
+log('click picks front, alt-click behind', [front, await picked()]);
+await page.keyboard.press('Escape'); await page.keyboard.press('Control+z'); await page.waitForTimeout(600); await page.keyboard.press('v');
+
 // J. touch: drag an annotation with a finger
 const ctx = await b.newContext({ ...devices['Pixel 7'] }); const ph = await ctx.newPage();
 ph.on('pageerror', (e) => errors.push('phone: ' + e.message));

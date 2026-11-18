@@ -1,4 +1,4 @@
-version v2.25.3
+version v2.25.4
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -47,5 +47,6 @@ protect [true,3]
 link to another page [1]
 text box border default [null,1]
 print empty range message Enter the pages
+click picks front, alt-click behind ["Image","Text"]
 touch drag moved true
 errors []

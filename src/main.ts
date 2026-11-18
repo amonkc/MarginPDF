@@ -963,7 +963,7 @@ async function main(): Promise<void> {
           items.push(
             h("span", {
               class: "hint",
-              text: "Shift-click or drag a box to select more. Arrows nudge 1 pt (Shift: 10).",
+              text: "Shift-click or drag a box to select more; Alt-click selects what’s behind. Arrows nudge 1 pt (Shift: 10).",
             }),
           );
         }

@@ -36,6 +36,8 @@ export type ArrangeItem = {
   line?: [Pt, Pt];
   /** set for wrapping rich text: side handles reflow it instead of scaling */
   wrap?: RichText;
+  /** paint order on the page, higher is in front (annotations above all page content); see `stackOf` */
+  z: number;
 };
 
 /** The primary selection: page index and item key. */
@@ -48,6 +50,8 @@ type AlignEdge = "left" | "hcenter" | "right" | "top" | "vmiddle" | "bottom";
 
 /** Resize handle positions, clockwise from top-left. */
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+/** Stacking: annotations are drawn above all page content; a watermark, though usually last, is clicked through. */
+const ANNOT_Z = 1e7, WATERMARK_Z = -1;
 /** Snap distance in screen pixels. */
 const SNAP_PX = 5;
 
@@ -75,7 +79,7 @@ class Arrange {
     this.app = app;
     this.v = viewer;
   }
-  /** The selectable items on a page, sorted by area so the smallest wins hit tests (cached). */
+  /** The selectable items on a page, smallest first (cached). Clicks pick by stacking order instead: `stackAt`. */
   itemsOf(pv: PageView): ArrangeItem[] {
     let items = this.items.get(pv.index);
     if (items) return items;
@@ -83,23 +87,23 @@ class Arrange {
     items = [];
     for (const a of this.v.annotsOf(pv) as AnnotInfo[]) if (!(isTextMarkup(a.subtype) || a.subtype === ANNOT.POPUP || a.subtype === ANNOT.REDACT)) {
       if (a.subtype === ANNOT.FREETEXT && a.ft) {
-        items.push({ kind: "annot", key: "a" + a.index, label: a.ft.tip ? "Callout" : "Text box", bounds: a.ft.box, objs: [], annot: a.index, uniform: false, resizable: true, ft: a.ft });
+        items.push({ kind: "annot", key: "a" + a.index, label: a.ft.tip ? "Callout" : "Text box", bounds: a.ft.box, objs: [], annot: a.index, uniform: false, resizable: true, ft: a.ft, z: ANNOT_Z + a.index });
         continue;
       }
       if (a.subtype === ANNOT.LINE && a.line) {
-        items.push({ kind: "annot", key: "a" + a.index, label: "Line", bounds: a.rect, objs: [], annot: a.index, uniform: false, resizable: false, line: a.line });
+        items.push({ kind: "annot", key: "a" + a.index, label: "Line", bounds: a.rect, objs: [], annot: a.index, uniform: false, resizable: false, line: a.line, z: ANNOT_Z + a.index });
         continue;
       }
-      items.push({ kind: "annot", key: "a" + a.index, label: a.subtype === ANNOT.STAMP && a.contents === "Signature" ? "Signature" : ANNOT_NAMES[a.subtype] || "Annotation", bounds: a.rect, objs: [], annot: a.index, uniform: a.subtype === ANNOT.STAMP, resizable: a.subtype !== ANNOT.TEXT });
+      items.push({ kind: "annot", key: "a" + a.index, label: a.subtype === ANNOT.STAMP && a.contents === "Signature" ? "Signature" : ANNOT_NAMES[a.subtype] || "Annotation", bounds: a.rect, objs: [], annot: a.index, uniform: a.subtype === ANNOT.STAMP, resizable: a.subtype !== ANNOT.TEXT, z: ANNOT_Z + a.index });
     }
-    for (const f of this.v.fieldsOf(pv)) items.push({ kind: "annot", key: "a" + f.index, label: "Form field", bounds: f.rect, objs: [], annot: f.index, uniform: false, resizable: true });
-    for (const link of doc.links(pv.index)) items.push({ kind: "annot", key: "a" + link.index, label: "Link", bounds: link.rect, objs: [], annot: link.index, uniform: false, resizable: true });
+    for (const f of this.v.fieldsOf(pv)) items.push({ kind: "annot", key: "a" + f.index, label: "Form field", bounds: f.rect, objs: [], annot: f.index, uniform: false, resizable: true, z: ANNOT_Z + f.index });
+    for (const link of doc.links(pv.index)) items.push({ kind: "annot", key: "a" + link.index, label: "Link", bounds: link.rect, objs: [], annot: link.index, uniform: false, resizable: true, z: ANNOT_Z + link.index });
     const objects = doc.pageObjects(pv.index), blockBounds = /* @__PURE__ */ new Map<string, Rect[]>(), blockObjs = /* @__PURE__ */ new Map<string, number[]>();
     for (const obj of objects) {
       if (obj.blockId) {
         (blockBounds.get(obj.blockId) || blockBounds.set(obj.blockId, []).get(obj.blockId))!.push(obj.bounds);
         (blockObjs.get(obj.blockId) || blockObjs.set(obj.blockId, []).get(obj.blockId))!.push(obj.index);
-      } else if (obj.type === 3 || obj.type === 5) items.push({ kind: "image", key: "o" + obj.index, label: obj.type === 3 ? "Image" : "Graphic", bounds: obj.bounds, objs: [obj.index], uniform: false, resizable: true });
+      } else if (obj.type === 3 || obj.type === 5) items.push({ kind: "image", key: "o" + obj.index, label: obj.type === 3 ? "Image" : "Graphic", bounds: obj.bounds, objs: [obj.index], uniform: false, resizable: true, z: obj.index });
     }
     // Rich-text blocks that wrap to a width, by block id.
     const wraps = /* @__PURE__ */ new Map<string, RichText>();
@@ -107,8 +111,8 @@ class Arrange {
       const wrap = decodeRichText(text.margin.rt);
       if (wrap?.width) wraps.set(text.margin.id, wrap);
     }
-    for (const [id, bounds] of blockBounds) items.push({ wrap: wraps.get(id), kind: "block", key: "b" + id, label: id.startsWith("hf-") ? "Header / footer" : id === "wm" ? "Watermark" : id === "bg" ? "Background" : "Text", bounds: unionRect(bounds), objs: blockObjs.get(id)!, block: id, uniform: true, resizable: true });
-    for (const line of groupTextRuns(this.v.textsOf(pv))) if (!line.block) items.push({ kind: "line", key: "l" + line.objs[0].index, label: "Text", bounds: line.bounds, objs: line.objs.map((o) => o.index), uniform: true, resizable: true });
+    for (const [id, bounds] of blockBounds) items.push({ wrap: wraps.get(id), kind: "block", key: "b" + id, label: id.startsWith("hf-") ? "Header / footer" : id === "wm" ? "Watermark" : id === "bg" ? "Background" : "Text", bounds: unionRect(bounds), objs: blockObjs.get(id)!, block: id, uniform: true, resizable: true, z: id === "wm" ? WATERMARK_Z : Math.max(...blockObjs.get(id)!) });
+    for (const line of groupTextRuns(this.v.textsOf(pv))) if (!line.block) items.push({ kind: "line", key: "l" + line.objs[0].index, label: "Text", bounds: line.bounds, objs: line.objs.map((o) => o.index), uniform: true, resizable: true, z: Math.max(...line.objs.map((o) => o.index)) });
     const area = (r: Rect) => (r.r - r.l) * (r.t - r.b);
     items.sort((a, b) => area(a.bounds) - area(b.bounds));
     this.items.set(pv.index, items);
@@ -127,8 +131,8 @@ class Arrange {
       return;
     }
     const items = this.itemsOf(pv);
-    // Largest first, so smaller items' boxes end up on top.
-    for (const item of [...items].reverse()) {
+    // Back to front, so the hover title is the item in front.
+    for (const item of [...items].sort((a, b) => a.z - b.z)) {
       const box = pv.tf.box(item.bounds);
       pv.ov.append(h("div", { class: "obox", "data-k": item.key, title: item.label, style: { left: box.x - 2 + "px", top: box.y - 2 + "px", width: box.w + 4 + "px", height: box.h + 4 + "px" } }));
     }
@@ -239,12 +243,10 @@ class Arrange {
     let hit: ArrangeItem | undefined;
     if (handle && this.sel?.page === pv.index) hit = items.find((it) => it.key === this.sel!.key);
     else {
-      const ovRect = pv.ov.getBoundingClientRect(), px = ev.clientX - ovRect.left, py = ev.clientY - ovRect.top;
-      hit = items.find((it) => it.line && distToSegment(px, py, pv.tf.apply(it.line[0].x, it.line[0].y), pv.tf.apply(it.line[1].x, it.line[1].y)) < 7) || items.find((it) => {
-        if (it.line) return false;
-        const box = pv.tf.box(it.bounds);
-        return px >= box.x - 3 && px <= box.x + box.w + 3 && py >= box.y - 3 && py <= box.y + box.h + 3;
-      });
+      const ovRect = pv.ov.getBoundingClientRect(), stack = this.stackAt(pv, ev.clientX - ovRect.left, ev.clientY - ovRect.top);
+      // Alt-click reaches what's behind: the item below the selected one in the stack under the pointer.
+      const below = ev.altKey && this.sel?.page === pv.index ? stack.findIndex((it) => it.key === this.sel!.key) : -1;
+      hit = below >= 0 ? stack[(below + 1) % stack.length] : stack[0];
     }
     const additive = ev.shiftKey || ev.ctrlKey || ev.metaKey;
     if (!hit) {
@@ -278,6 +280,18 @@ class Arrange {
       if ((hit.line || hit.ft?.tip) && handle && /^p[01]$/.test(handle.dataset.h!)) return this.dragEnd(ev, pv, hit, +handle.dataset.h![1]);
       this.drag(ev, pv, hit, frameEl, handle?.dataset.h || null);
     }
+  }
+  /**
+   * The items under an overlay point, front to back: the one drawn on top first (annotations above page
+   * content, later page objects above earlier ones, the watermark behind everything else). Lines count within
+   * 7 px of their segment, other items within 3 px of their box.
+   */
+  stackAt(pv: PageView, px: number, py: number): ArrangeItem[] {
+    return this.itemsOf(pv).filter((it) => {
+      if (it.line) return distToSegment(px, py, pv.tf.apply(it.line[0].x, it.line[0].y), pv.tf.apply(it.line[1].x, it.line[1].y)) < 7;
+      const box = pv.tf.box(it.bounds);
+      return px >= box.x - 3 && px <= box.x + box.w + 3 && py >= box.y - 3 && py <= box.y + box.h + 3;
+    }).sort((a, b) => b.z - a.z);
   }
   /**
    * Moves (handle null) or resizes (handle "n", "se", …) one item, previewing on its frame. Moves snap the
