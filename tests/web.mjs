@@ -48,10 +48,12 @@ await page.keyboard.press('v');
 const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.keyboard.press('Control+s')]);
 const p = await dl.path(); const fs = await import('fs');
 console.log('save:', dl.suggestedFilename(), fs.statSync(p).size > 1000 ? 'ok' : 'empty');
-// licences link
+// licences: in the app (What's new → Open-source licences) and at /licenses/
 await page.locator('#btn-version').click(); await page.waitForSelector('.modal');
-const href = await page.locator('.modal a[href*="licenses"]').getAttribute('href');
-const r = await page.request.get(origin + href); console.log('licences:', r.status(), (await r.text()).slice(0, 39));
+await page.locator('.modal .clink', { hasText: 'Open-source licences' }).click();
+const shown = await page.locator('pre.licences').textContent({ timeout: 10000 });
+console.log('licences in app:', shown.length > 50000 ? 'ok' : 'short', shown.slice(0, 39));
+const r = await page.request.get(origin + '/licenses/THIRD_PARTY_NOTICES.txt'); console.log('licences:', r.status(), (await r.text()).slice(0, 39));
 console.log('third-party requests:', [...foreign]);
 console.log('errors', errors);
 await b.close();

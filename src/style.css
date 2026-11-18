@@ -2452,3 +2452,17 @@ input.sw.custom::-moz-color-swatch { border: 0; opacity: 0; }
 }
 .op-range { width: 110px; accent-color: var(--accent); }
 .op-val { min-width: 34px; font-variant-numeric: tabular-nums; }
+
+/* open-source licences window */
+.licences {
+  margin: 0;
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 11.5px/1.45 var(--f-mono);
+  color: var(--ink-soft);
+}
+.modal:has(.licences) {
+  width: min(760px, 100%);
+}

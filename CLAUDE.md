@@ -26,7 +26,8 @@ claude.ai artifact page.
   first-visit size ≈ 2.5 MB, repeat visit a few KB). Keep bandwidth in mind: large assets must stay lazy-loaded and
   content-hashed (scripts/web.mjs), and `index.html` stays `no-cache`.
 - Also publish `artifact/index.html` to https://claude.ai/artifact/NhLtPAncgyqMEJkLrKEenD with label = version.
-- New third-party code or fonts: add their licence to `licenses/THIRD_PARTY_NOTICES.txt`.
+- New third-party code or fonts: add their licence to `public/licenses/THIRD_PARTY_NOTICES.txt` (shown in the app
+  from What's new → Open-source licences, and served at /licenses/ on the website).
 
 ## Release convention (owner's standing rule)
 Every change bumps the version (minor for features, patch for fixes) in `src/changelog.ts` (`VERSION` plus a

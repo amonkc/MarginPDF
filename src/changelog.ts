@@ -10,6 +10,13 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.25.1",
+    date: "2026-11-18",
+    notes: [
+      "The open-source licences now open inside Margin (What's new → Open-source licences), in the claude.ai version as well as on the website, and the list is complete: it adds the notices for ICU, the Emscripten runtime, musl and Vite alongside PDFium and its libraries, HarfBuzz, the spelling dictionary and every font.",
+    ],
+  },
+  {
     version: "2.25.0",
     date: "2026-11-18",
     notes: [
@@ -416,6 +423,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.25.0";
+const VERSION = "2.25.1";
 
 export { CHANGELOG, VERSION };

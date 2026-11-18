@@ -1524,6 +1524,17 @@ async function main(): Promise<void> {
   document.body.append(openFileInput, insertFileInput, replaceFileInput);
   $("#btn-open").addEventListener("click", () => openFileInput.click());
   $("#btn-merge").addEventListener("click", () => insertFileInput.click());
+  /** The third-party notices shipped with Margin (public/licenses/), in a window. */
+  async function showLicences(): Promise<void> {
+    let text: string;
+    try {
+      text = new TextDecoder().decode(await loadAsset("licenses/THIRD_PARTY_NOTICES.txt"));
+    } catch (err) {
+      toast((err as Error).message, "err");
+      return;
+    }
+    modal({ title: "Open-source licences", body: h("pre", { class: "licences", text }), actions: [{ id: "ok", label: "Close", primary: true }] });
+  }
   $("#btn-version").textContent = "v" + VERSION;
   $("#btn-version").addEventListener("click", () =>
     modal({
@@ -1544,10 +1555,7 @@ async function main(): Promise<void> {
             h("ul", {}, ...release.notes.map((note) => h("li", { text: note }))),
           ),
         ),
-        // the web build serves the third-party licence notices (scripts/web.mjs); the artifact has no files to link
-        import.meta.env.MODE === "web"
-          ? h("p", { class: "hint" }, h("a", { href: "/licenses/THIRD_PARTY_NOTICES.txt", target: "_blank", rel: "noopener", text: "Open-source licences" }))
-          : null,
+        h("p", { class: "hint" }, h("button", { class: "clink", type: "button", text: "Open-source licences", onclick: () => showLicences() })),
       ),
       actions: [{ id: "ok", label: "Close", primary: true }],
     }),

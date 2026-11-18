@@ -23,7 +23,7 @@ repository connected through Workers Builds, every push to `develop` builds and 
 visitor downloads Margin once (about 2.5 MB, mostly the PDF engine) and repeat visits transfer only `index.html`.
 PDF fonts (about 60 KB each) and the spelling dictionary (about 190 KB) download only when first used. Interface
 fonts are self-hosted, so the site makes no requests to other domains. Third-party licences are served at
-`/licenses/THIRD_PARTY_NOTICES.txt` (source: `licenses/`).
+`/licenses/THIRD_PARTY_NOTICES.txt` (source: `public/licenses/`; also shown in the app under What’s new → Open-source licences).
 
 ## Test
 ```sh
@@ -45,7 +45,7 @@ The end-to-end run drives the app in headless Chromium (Playwright) and prints a
 - `public/` — wasm engines, fonts, spelling dictionary, welcome document.
 - `scripts/artifact.mjs` — turns the Vite build into the claude.ai artifact page, inlining `public/` as gzipped assets.
 - `scripts/web.mjs`, `scripts/serve.mjs`, `wrangler.jsonc` — the Cloudflare web build, a local stand-in server, deployment.
-- `licenses/` — third-party notices shipped with the web build.
+- `public/licenses/` — third-party notices, shipped with both builds and shown in the app.
 
 ## History
 The original TypeScript sources were lost in November 2026 (v2.23.2). This project was rebuilt from the

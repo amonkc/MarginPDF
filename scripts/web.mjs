@@ -3,7 +3,7 @@
 //    the list), so every asset can be cached by browsers and Cloudflare for a year and is downloaded once;
 //  - writes web/_headers: long caching for hashed files, revalidation for index.html, security headers, and a
 //    text content type for the spelling dictionary so Cloudflare compresses it;
-//  - copies the third-party licence notices to web/licenses/.
+//  - copies the third-party licence notices (public/licenses/) to web/licenses/ as well.
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -72,8 +72,9 @@ const headers = `/*
 `;
 fs.writeFileSync(path.join(out, '_headers'), headers);
 
+// also at a stable, readable address (the app itself loads the hashed copy listed above)
 fs.mkdirSync(path.join(out, 'licenses'), { recursive: true });
-for (const f of fs.readdirSync('licenses')) fs.copyFileSync(path.join('licenses', f), path.join(out, 'licenses', f));
+for (const f of fs.readdirSync('public/licenses')) fs.copyFileSync(path.join('public/licenses', f), path.join(out, 'licenses', f));
 
 const total = (dir) => fs.readdirSync(dir).reduce((n, f) => { const p = path.join(dir, f); return n + (fs.statSync(p).isDirectory() ? total(p) : fs.statSync(p).size); }, 0);
 console.log(`${out}/: ${files.length} assets (${(bytes / 1e6).toFixed(1)} MB), site ${(total(out) / 1e6).toFixed(1)} MB`);
