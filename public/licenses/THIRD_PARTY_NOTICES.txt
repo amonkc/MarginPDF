@@ -1,7 +1,8 @@
 Margin PDF Editor — third-party notices
 
 Margin includes the software and fonts below. Each is used under the licence reproduced here.
-Margin's own code is © Amon (amonkc) and contributors.
+Margin's own code is © 2026 Amon (amonkc) and contributors, released under the MIT License
+(the LICENSE file at https://github.com/amonkc/MarginPDF).
 
 ==============================================================================
 PDFium (PDF engine, compiled to WebAssembly by @embedpdf/pdfium)

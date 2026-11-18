@@ -51,3 +51,7 @@ The end-to-end run drives the app in headless Chromium (Playwright) and prints a
 The original TypeScript sources were lost in November 2026 (v2.23.2). This project was rebuilt from the
 published build: split back into modules, names and types restored, libraries taken from npm again, and checked
 against the published version with the end-to-end run.
+
+## Licence
+Margin is released under the [MIT License](LICENSE). Third-party code and fonts keep their own licences,
+listed in `public/licenses/THIRD_PARTY_NOTICES.txt`.

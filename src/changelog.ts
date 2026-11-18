@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.25.2",
+    date: "2026-11-18",
+    notes: ["Margin itself is now open source under the MIT License, noted at the top of the open-source licences."],
+  },
+  {
     version: "2.25.1",
     date: "2026-11-18",
     notes: [
@@ -423,6 +428,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.25.1";
+const VERSION = "2.25.2";
 
 export { CHANGELOG, VERSION };
