@@ -1,7 +1,7 @@
 # Margin — notes for Claude
 
-Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) published as one self-contained
-claude.ai artifact page.
+Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) delivered as a website on Cloudflare
+(from GitHub `develop`); it can also be built as one self-contained page.
 
 ## Layout
 - `src/engine/` — PDF engine wrapper (`pdfium.ts`: `Pdfium`, `Doc`), text shaping/drawing (`text.ts`),
@@ -25,11 +25,12 @@ claude.ai artifact page.
   the artifact) and `node tests/web.mjs http://localhost:8788/` (downloads, licences, no third-party requests,
   first-visit size ≈ 2.5 MB, repeat visit a few KB). Keep bandwidth in mind: large assets must stay lazy-loaded and
   content-hashed (scripts/web.mjs), and `index.html` stays `no-cache`.
-- Also publish `artifact/index.html` to https://claude.ai/artifact/NhLtPAncgyqMEJkLrKEenD with label = version.
+- The claude.ai artifact (https://claude.ai/artifact/NhLtPAncgyqMEJkLrKEenD) is no longer updated (owner's decision,
+  2026-11-18, last published v2.25.2). The artifact build is still made because the e2e tests run against it.
 - New third-party code or fonts: add their licence to `public/licenses/THIRD_PARTY_NOTICES.txt` (shown in the app
   from What's new → Open-source licences, and served at /licenses/ on the website).
 
 ## Release convention (owner's standing rule)
 Every change bumps the version (minor for features, patch for fixes) in `src/changelog.ts` (`VERSION` plus a
-new first `CHANGELOG` entry) and `package.json`, then build, test, publish. One commit per release on
+new first `CHANGELOG` entry) and `package.json`, then build, test, and push (the push deploys the website). One commit per release on
 `develop`, title starting with `vX.Y.Z`. Also refresh the copy of the source in `/mnt/user-data/outputs/margin/`.
