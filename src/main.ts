@@ -89,16 +89,23 @@ interface LongPress {
   el: HTMLElement;
 }
 
-let downloadsPromise: Promise<any> | null = null;
+/** The part of the host's "downloads" capability Margin uses. */
+interface Downloads {
+  save(file: { filename: string; data: Blob }): Promise<unknown>;
+}
+/** The claude.ai host API on `window` (absent outside the host). */
+type HostWindow = Window & { claude?: { use?: (capability: string) => unknown } };
+
+let downloadsPromise: Promise<Downloads | null> | null = null;
 
 /**
  * The claude.ai host's "downloads" capability, used to save files from inside the artifact frame.
  * Resolves to null outside the host (or if the capability can't be loaded); the lookup is cached.
  */
-function getDownloads(): Promise<any> {
-  const claude = (window as any).claude;
+function getDownloads(): Promise<Downloads | null> {
+  const claude = (window as HostWindow).claude;
   return claude?.use
-    ? (downloadsPromise ??= Promise.resolve(claude.use("downloads")).catch(() => null))
+    ? (downloadsPromise ??= Promise.resolve(claude.use("downloads") as Downloads | null).catch(() => null))
     : Promise.resolve(null);
 }
 /** Boots the PDF engine and HarfBuzz, builds the whole UI and wires every control, then opens the welcome PDF. */
@@ -144,7 +151,8 @@ async function main(): Promise<void> {
     app.selectedPages.size > 1 ? [...app.selectedPages].sort((a, b) => a - b) : null;
   const thumbs = new Thumbs($("#thumbs"), app);
   const commentsPanel = new CommentsPanel($("#comments"), app);
-  (window as any).__margin = { app, viewer, ix: interact, arrange, Growable: Growable };
+  // debugging/test hook: the main objects, reachable from the console and the e2e tests
+  (window as unknown as { __margin: unknown }).__margin = { app, viewer, ix: interact, arrange, Growable: Growable };
   const bookmarks = new Bookmarks(app, viewer);
   const pagesPane = h(
     "div",
@@ -1820,7 +1828,7 @@ async function main(): Promise<void> {
           showHit();
         }
       } catch (err) {
-        toast(err.message, "err");
+        toast((err as Error).message, "err");
       }
   });
   $("#rp-all").addEventListener("click", async () => {
@@ -2185,7 +2193,7 @@ async function main(): Promise<void> {
       ranges = parseRanges();
     } catch (err) {
       source.close();
-      return toast(err.message, "warn");
+      return toast((err as Error).message, "warn");
     }
     const { t: targets, s: sources } = ranges;
     const first = targets[0];
@@ -2233,7 +2241,7 @@ async function main(): Promise<void> {
       thumbs.mark();
       viewer.scrollToPage(first);
     } catch (err) {
-      toast(err.message, "err", 5e3);
+      toast((err as Error).message, "err", 5e3);
     } finally {
       source.close();
     }
@@ -2253,7 +2261,7 @@ async function main(): Promise<void> {
       }
     } catch (err) {
       docs.forEach((entry) => entry.doc.close());
-      toast(err.message, "err", 5e3);
+      toast((err as Error).message, "err", 5e3);
       return;
     }
     await insertDocs(
@@ -2350,7 +2358,7 @@ async function main(): Promise<void> {
         );
         updatePasteButton();
       } catch (err) {
-        toast(err.message, "err");
+        toast((err as Error).message, "err");
       } finally {
         copy.close();
       }
@@ -2368,7 +2376,7 @@ async function main(): Promise<void> {
     try {
       doc = pdfium.open(clip.bytes);
     } catch (err) {
-      return toast(err.message, "err");
+      return toast((err as Error).message, "err");
     }
     const insertAt = at ?? Math.max(...selectedOrCurrentPages()) + 1;
     await insertDocs([{ name: clip.from, doc }], insertAt, clip.pages === 1 ? "Paste page" : "Paste pages", clip.from);
@@ -3059,7 +3067,7 @@ async function main(): Promise<void> {
         picked.bitmap.close();
         URL.revokeObjectURL(picked.url);
       } catch (err) {
-        toast(err.message, "err");
+        toast((err as Error).message, "err");
       }
   }
   /** Saves the picture selected in Move & resize as JPEG (if stored as JPEG) or PNG. */
@@ -3083,7 +3091,7 @@ async function main(): Promise<void> {
       if (!blob) throw new Error("Couldn’t encode the image");
       await saveFile(new Uint8Array(await blob.arrayBuffer()), baseName + ".png", "image/png");
     } catch (err) {
-      toast(err.message, "err");
+      toast((err as Error).message, "err");
     }
   }
   /** Right-click menu for the Move & resize selection (one or several objects). */
@@ -3570,7 +3578,7 @@ async function main(): Promise<void> {
         await extractDialog(app, pdfium, pages, saveFile);
       }
     } catch (err) {
-      toast(err.message, "err");
+      toast((err as Error).message, "err");
     }
   }
   /** Saves the edited document; resolves to false if it couldn’t be written. */
@@ -3600,12 +3608,13 @@ async function main(): Promise<void> {
         }
         toast(`Saved ${filename}`);
       } catch (err) {
-        if ((err as { code?: string } | null)?.code === "declined") {
+        const failure = err as { code?: string; message?: string } | null;
+        if (failure?.code === "declined") {
           toast("Save cancelled", "warn");
-        } else if ((err as { code?: string } | null)?.code === "rate_limited") {
+        } else if (failure?.code === "rate_limited") {
           toast("A save prompt is already open", "warn");
         } else {
-          toast(`Couldn’t save: ${(err as Error | null)?.message || (err as { code?: string } | null)?.code || "unknown error"}`, "err", 5e3);
+          toast(`Couldn’t save: ${failure?.message || failure?.code || "unknown error"}`, "err", 5e3);
         }
       }
       return;

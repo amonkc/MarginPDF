@@ -76,8 +76,41 @@ function nameRadioStates(bytes: Uint8Array): Uint8Array {
     const on = body.match(/\/MarginOn\s*\(((?:[^()\\]|\\.)*)\)/);
     if (!on) continue;
     const state = on[1].replace(/\\(.)/g, "$1").trim().replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 24) || "On";
-    const patched = body.replace(on[0], "").replace(/\/Yes\b/g, "/" + state);
+    const patched = renameOnState(body.replace(on[0], ""), state);
     if (!(patched.length > body.length)) put(match.index + match[1].length, patched + " ".repeat(body.length - patched.length));
+  }
+  return out;
+}
+
+/** "/Yes" as a whole PDF name (followed by a delimiter, whitespace or the end). */
+const YES_NAME = /\/Yes(?=[\s\/<>\[\]()%{}]|$)/g;
+
+/**
+ * Rename a widget's "on" appearance state from /Yes to /`state` in an object body: the /AS value, the
+ * state keys inside its /AP dictionary (/N, /D, /R sub-dictionaries) and, for a field merged with its
+ * widget, a /V value. Nothing else in the body (e.g. a /Yes in /MK or /Opt) is touched.
+ */
+function renameOnState(body: string, state: string): string {
+  let out = body.replace(/(\/(?:AS|V)\s*)\/Yes(?=[\s\/<>\[\]()%{}]|$)/g, "$1/" + state);
+  const ap = /\/AP\s*<</.exec(out);
+  if (ap) {
+    // Find the end of the /AP dictionary by counting << >> (no strings in appearance dictionaries).
+    const start = ap.index + ap[0].length - 2;
+    let depth = 0, end = -1;
+    for (let k = start; k < out.length - 1; k++) {
+      if (out[k] === "<" && out[k + 1] === "<") {
+        depth++;
+        k++;
+      } else if (out[k] === ">" && out[k + 1] === ">") {
+        depth--;
+        k++;
+        if (!depth) {
+          end = k + 1;
+          break;
+        }
+      }
+    }
+    if (end > 0) out = out.slice(0, start) + out.slice(start, end).replace(YES_NAME, "/" + state) + out.slice(end);
   }
   return out;
 }
@@ -215,6 +248,26 @@ ${baseLen + size}\r
   }
 }
 
+/**
+ * Whether heap[from, from + len) equals ref[at, at + len). Compares 32-bit words when both ranges share
+ * the same alignment (the usual case), so checking a whole re-emitted file stays cheap next to writing it.
+ */
+function sameBytes(heap: Uint8Array, from: number, ref: Uint8Array, at: number, len: number): boolean {
+  let k = 0;
+  const heapAt = heap.byteOffset + from, refAt = ref.byteOffset + at;
+  if ((heapAt & 3) === (refAt & 3)) {
+    for (; k < len && (heapAt + k) & 3; k++) if (heap[from + k] !== ref[at + k]) return false;
+    const words = (len - k) >> 2;
+    if (words) {
+      const heapWords = new Uint32Array(heap.buffer, heapAt + k, words), refWords = new Uint32Array(ref.buffer, refAt + k, words);
+      for (let j = 0; j < words; j++) if (heapWords[j] !== refWords[j]) return false;
+      k += words * 4;
+    }
+  }
+  for (; k < len; k++) if (heap[from + k] !== ref[at + k]) return false;
+  return true;
+}
+
 /** Blank out (with spaces) every "/Parent N G R" that points at an object the file doesn't define. */
 function dropDanglingParents(bytes: Uint8Array): Uint8Array {
   const text = new TextDecoder("latin1").decode(bytes);
@@ -343,7 +396,9 @@ class Pdfium {
       this.dropSource(src);
       throw new PdfError(code);
     }
-    return new Doc(this, handle, src);
+    const doc = new Doc(this, handle, src);
+    doc.passwords = { password, ownerPassword: "" };
+    return doc;
   }
   /** Expose `bytes` to PDFium through an FPDF_FILEACCESS whose callback copies the requested range. */
   source(bytes: Uint8Array): PdfSource {
@@ -478,8 +533,10 @@ class Doc {
   imported = false;
   /** Page indices loaded since the last swap. */
   loaded = new Set<number>();
-  /** How many pages are currently loaded through withPage/addLink/createField. */
+  /** How many pages are currently loaded through withPage/createField. */
   depth = 0;
+  /** The passwords the current bytes were opened with (swap() reopens them if new bytes won't open). */
+  passwords = { password: "", ownerPassword: "" };
   constructor(lib: Pdfium, handle: number, src: PdfSource | null) {
     this.lib = lib;
     this.P = lib.P;
@@ -503,18 +560,33 @@ class Doc {
   }
   /**
    * Close and reopen this Doc on new bytes (after a save), trying `fallback` if `bytes` won't open.
-   * `ownerPassword`, if given, re-unlocks owner permissions.
+   * `ownerPassword`, if given, re-unlocks owner permissions. If neither opens, the bytes this Doc had
+   * before are reopened (so it stays usable, as last saved) and a PdfError is thrown; if even that
+   * fails, an Error saying so is thrown and the Doc stays closed.
    */
   swap(bytes: Uint8Array, password = "", fallback?: Uint8Array, ownerPassword = ""): void {
+    const previous = this.src?.bytes, previousPasswords = this.passwords;
     this.close();
-    const lib = this.lib, P = this.P, tryOpen = (data: Uint8Array) => {
-      const src = lib.source(data), handle = P.FPDF_LoadCustomDocument(src.fa, password);
+    const lib = this.lib, P = this.P, tryOpen = (data: Uint8Array, pw: string) => {
+      const src = lib.source(data), handle = P.FPDF_LoadCustomDocument(src.fa, pw);
       if (!handle) lib.dropSource(src);
       return handle ? { h: handle, src } : null;
-    }, opened = tryOpen(bytes) || (fallback ? tryOpen(fallback) : null);
-    if (!opened) throw new PdfError(P.FPDF_GetLastError());
-    this.h = opened.h;
-    this.src = opened.src;
+    }, opened = tryOpen(bytes, password) || (fallback ? tryOpen(fallback, password) : null);
+    if (opened) {
+      this.attach(opened.h, opened.src, password, ownerPassword);
+      return;
+    }
+    const error = new PdfError(P.FPDF_GetLastError()), restored = previous ? tryOpen(previous, previousPasswords.password) : null;
+    if (!restored) throw new Error(`The document could not be reloaded (${error.message}). Reload Margin to keep working.`);
+    this.attach(restored.h, restored.src, previousPasswords.password, previousPasswords.ownerPassword);
+    throw error;
+  }
+  /** Take over a freshly opened document handle: reset per-load state and set up the form environment. */
+  private attach(handle: number, src: PdfSource, password: string, ownerPassword: string): void {
+    const P = this.P;
+    this.h = handle;
+    this.src = src;
+    this.passwords = { password, ownerPassword };
     this.imported = false;
     this.loaded.clear();
     if (ownerPassword) P.EPDF_UnlockOwnerPermissions(this.h, ownerPassword);
@@ -601,8 +673,8 @@ class Doc {
   }
   /**
    * FPDF_SaveAsCopy with `flags`. With `skip` > 0 (incremental save) PDFium first re-emits the original
-   * file: the first `skip` bytes are checked against the source (spot checks of up to 32 bytes per
-   * write) and dropped, so only the appended update is returned. Null when saving fails or the prefix
+   * file: the first `skip` bytes are checked against the source in full and dropped, so only the
+   * appended update is returned. Null when saving fails or the prefix
    * doesn't match the source.
    */
   write(flags: number, skip: number): Uint8Array | null {
@@ -614,13 +686,7 @@ class Doc {
       data >>>= 0;
       len >>>= 0;
       const heap = mod.HEAPU8;
-      if (seen < skip && orig) {
-        const n = Math.min(len, skip - seen, 32);
-        for (let k = 0; k < n; k++) if (heap[data + k] !== orig[seen + k]) {
-          prefixOk = false;
-          break;
-        }
-      }
+      if (prefixOk && seen < skip && orig && !sameBytes(heap, data, orig, seen, Math.min(len, skip - seen))) prefixOk = false;
       const from = Math.max(seen, skip);
       if (seen + len > from) {
         const part = heap.subarray(data + (from - seen), data + len);
@@ -889,7 +955,9 @@ class Doc {
     return { encrypted: revision > 0, revision, perms: this.P.FPDF_GetDocPermissions(this.h) >>> 0 };
   }
   unlockOwner(password: string): boolean {
-    return !!this.P.EPDF_UnlockOwnerPermissions(this.h, password);
+    const ok = !!this.P.EPDF_UnlockOwnerPermissions(this.h, password);
+    if (ok) this.passwords = { ...this.passwords, ownerPassword: password };
+    return ok;
   }
   setProtection(userPassword: string, ownerPassword: string, perms: number): boolean {
     return !!this.P.EPDF_SetEncryption(this.h, userPassword, ownerPassword, perms | 0);
@@ -1809,21 +1877,27 @@ class Doc {
     });
   }
   // ---- Annotation editing ----------------------------------------------------------------------
-  /** Delete an annotation together with its replies (annotations /IRT-linked to it, transitively). */
+  /**
+   * Delete an annotation together with its replies (annotations /IRT-linked to it, transitively) and the
+   * popups of all of them (their /Popup, or popups whose /Parent is one of them).
+   */
   deleteAnnot(index: number, annotIndex: number): void {
     const P = this.P;
     this.withPage(index, (page) => {
+      /** Index of the annotation `annot` links to under `key`, or -1. */
+      const linkedIndex = (annot: number, key: string): number => {
+        const linked = P.FPDFAnnot_GetLinkedAnnot(annot, key);
+        if (!linked) return -1;
+        const linkedAt = P.FPDFPage_GetAnnotIndex(page, linked);
+        P.FPDFPage_CloseAnnot(linked);
+        return linkedAt;
+      };
       const doomed = new Set([annotIndex]);
       for (let grew = true; grew; ) {
         grew = false;
         for (let k = 0; k < P.FPDFPage_GetAnnotCount(page); k++) {
           if (doomed.has(k)) continue;
-          const annot = P.FPDFPage_GetAnnot(page, k), irt = P.FPDFAnnot_GetLinkedAnnot(annot, "IRT");
-          let irtIndex = -1;
-          if (irt) {
-            irtIndex = P.FPDFPage_GetAnnotIndex(page, irt);
-            P.FPDFPage_CloseAnnot(irt);
-          }
+          const annot = P.FPDFPage_GetAnnot(page, k), irtIndex = linkedIndex(annot, "IRT");
           P.FPDFPage_CloseAnnot(annot);
           if (irtIndex >= 0 && doomed.has(irtIndex)) {
             doomed.add(k);
@@ -1831,6 +1905,17 @@ class Doc {
           }
         }
       }
+      const popups = new Set<number>();
+      for (let k = 0; k < P.FPDFPage_GetAnnotCount(page); k++) {
+        const annot = P.FPDFPage_GetAnnot(page, k);
+        if (!annot) continue;
+        if (doomed.has(k)) {
+          const popup = linkedIndex(annot, "Popup");
+          if (popup >= 0) popups.add(popup);
+        } else if (P.FPDFAnnot_GetSubtype(annot) === ANNOT.POPUP && doomed.has(linkedIndex(annot, "Parent"))) popups.add(k);
+        P.FPDFPage_CloseAnnot(annot);
+      }
+      for (const k of popups) doomed.add(k);
       for (const k of [...doomed].sort((a, b) => b - a)) P.FPDFPage_RemoveAnnot(page, k);
     });
   }
