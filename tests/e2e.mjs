@@ -262,5 +262,45 @@ for (const touch of [false, true]) {
 }
 log('more button toggles its menu', toggles);
 
+// P. zoom: two-finger pinch on a touch screen, and the zoom menu on the percentage
+{
+  const c = await b.newContext({ ...devices['Pixel 7'] }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('pinch: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(600);
+  const before = await pg.evaluate(() => { const { viewer, app } = window.__margin; return { z: viewer.zoom, n: app.doc.annots(0).length, r: viewer.el.getBoundingClientRect() }; });
+  const cx = before.r.x + before.r.width / 2, cy = before.r.y + before.r.height / 2;
+  // the content point under the fingers' midpoint, as a fraction of the pages
+  const under = () => pg.evaluate(([x, y]) => { const v = window.__margin.viewer, r = v.inner.getBoundingClientRect(); return [(x - r.left) / r.width, (y - r.top) / r.height]; }, [cx, cy]);
+  const u0 = await under();
+  const cdp = await c.newCDPSession(pg), touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+  await touch('touchStart', [[cx - 40, cy], [cx + 40, cy]]);
+  for (let i = 1; i <= 10; i++) { await touch('touchMove', [[cx - 40 - 4 * i, cy], [cx + 40 + 4 * i, cy]]); await pg.waitForTimeout(16); }
+  const mid = await pg.evaluate(() => [window.__margin.viewer.zoom, !!window.__margin.viewer.inner.style.transform]);
+  await touch('touchEnd', []); await pg.waitForTimeout(600);
+  const after = await pg.evaluate(() => { const { viewer, app } = window.__margin; return { z: viewer.zoom, n: app.doc.annots(0).length, t: viewer.inner.style.transform }; });
+  const u1 = await under();
+  log('pinch zoom', [Math.round((after.z / before.z) * 10) / 10, mid[0] === before.z && mid[1], after.t === '', after.n === before.n, Math.abs(u1[0] - u0[0]) < 0.01 && Math.abs(u1[1] - u0[1]) < 0.01]);
+  // pinching with the Draw tool zooms and draws nothing
+  await pg.evaluate(() => window.__margin.app.setTool('draw')); await pg.waitForTimeout(200);
+  const z1 = after.z;
+  await touch('touchStart', [[cx - 60, cy], [cx + 60, cy]]);
+  for (let i = 1; i <= 10; i++) { await touch('touchMove', [[cx - 60 + 3 * i, cy + 2 * i], [cx + 60 - 3 * i, cy + 2 * i]]); await pg.waitForTimeout(16); }
+  await touch('touchEnd', []); await pg.waitForTimeout(600);
+  log('pinch with draw tool', await pg.evaluate(([n, z]) => { const { viewer, app } = window.__margin; return [app.doc.annots(0).length === n, viewer.zoom < z, app.dirty]; }, [after.n, z1]));
+  await c.close();
+}
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 800 } }); const pg = await c.newPage();
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(400);
+  await pg.locator('#zoom-level').click();
+  const items = await pg.locator('.ctxmenu .ctx-item').evaluateAll((e) => e.map((x) => (x.getAttribute('aria-checked') === 'true' ? '✓' : '') + x.textContent));
+  await pg.locator('.ctxmenu .ctx-item', { hasText: '200%' }).click(); await pg.waitForTimeout(300);
+  const z200 = await pg.locator('#zoom-level').innerText();
+  await pg.locator('#zoom-level').click(); await pg.locator('.ctxmenu .ctx-item', { hasText: 'Fit page' }).click(); await pg.waitForTimeout(300);
+  const fitPage = await pg.evaluate(() => { const v = window.__margin.viewer, p = v.views[0].wrap.getBoundingClientRect(); return v.fit === 'page' && p.height <= v.el.clientHeight; });
+  log('zoom menu', [items.join(' | '), z200, fitPage]);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

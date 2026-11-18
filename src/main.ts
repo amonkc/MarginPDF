@@ -1726,6 +1726,29 @@ async function main(): Promise<void> {
     viewer.fit = "width";
     viewer.applyFit();
   });
+  // The zoom percentage opens a menu: fit width, fit page, or a set size.
+  $("#zoom-level").addEventListener("click", () => {
+    const button = $("#zoom-level"), rect = button.getBoundingClientRect();
+    const fit = (mode: "width" | "page") => () => {
+      viewer.fit = mode;
+      viewer.applyFit();
+    };
+    openMenu(
+      rect.left - 40,
+      rect.bottom + 6,
+      [
+        { label: "Fit width", checked: viewer.fit === "width", run: fit("width") },
+        { label: "Fit page", checked: viewer.fit === "page", run: fit("page") },
+        "sep",
+        ...[50, 75, 100, 125, 150, 200, 300, 400].map((pct) => ({
+          label: pct + "%",
+          checked: !viewer.fit && Math.round(viewer.zoom * 100) === pct,
+          run: () => viewer.setZoom(pct / 100),
+        })),
+      ],
+      button,
+    );
+  });
   $("#btn-pages").addEventListener("click", () => document.body.classList.toggle("show-thumbs"));
   $("#btn-comments").addEventListener("click", () => document.body.classList.toggle("show-comments"));
   const searchInput = $<HTMLInputElement>("#search-input");

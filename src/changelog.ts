@@ -10,6 +10,14 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.28.0",
+    date: "2026-11-18",
+    notes: [
+      "Pinch to zoom on touch screens: zoom in and out with two fingers around the spot you’re pinching, with any tool. Starting a pinch cancels what the first finger began, so it never draws or moves anything.",
+      "Click the zoom percentage for a zoom menu: Fit width, Fit page, or a set size from 50% to 400%.",
+    ],
+  },
+  {
     version: "2.27.2",
     date: "2026-11-18",
     notes: ["Pressing the More button (⋯) again now closes its menu instead of opening it again."],
@@ -464,6 +472,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.27.2";
+const VERSION = "2.28.0";
 
 export { CHANGELOG, VERSION };

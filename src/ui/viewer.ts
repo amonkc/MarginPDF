@@ -91,6 +91,69 @@ class Viewer {
         this.setZoom(this.zoom * Math.exp(-e.deltaY * 22e-4), { x: e.clientX, y: e.clientY });
       }
     }, { passive: false });
+    this.pinchZoom();
+  }
+  /**
+   * Two-finger pinch on touch screens zooms around the fingers (the browser's own page zoom is off for the app).
+   * The second finger cancels whatever the first one started (a drag, a stroke, a long press); while pinching
+   * the pages are scaled with a CSS transform, and the zoom is applied, and the pages re-rendered, on release.
+   */
+  pinchZoom(): void {
+    const el = this.el, touches = new Map<number, PointerEvent>();
+    let pinch: { d0: number; z0: number; mid0: { x: number; y: number }; mid: { x: number; y: number }; s: number } | null = null;
+    const pair = () => [...touches.values()].slice(0, 2);
+    const mid = ([a, b]: PointerEvent[]) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+    const dist = ([a, b]: PointerEvent[]) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+    const swallow = (e: Event) => {
+      e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+    };
+    el.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
+      touches.set(e.pointerId, e);
+      if (touches.size < 2) return;
+      swallow(e);
+      if (pinch) return;
+      // End the first finger's gesture as cancelled, then pinch with both.
+      const [first] = pair();
+      first.target?.dispatchEvent(new PointerEvent("pointercancel", { pointerId: first.pointerId, pointerType: "touch", bubbles: true }));
+      const fingers = pair(), m = mid(fingers), inner = this.inner.getBoundingClientRect();
+      pinch = { d0: dist(fingers), z0: this.zoom, mid0: m, mid: m, s: 1 };
+      this.inner.style.transformOrigin = `${m.x - inner.left}px ${m.y - inner.top}px`;
+      this.inner.style.willChange = "transform";
+    }, true);
+    el.addEventListener("pointermove", (e) => {
+      if (!touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, e);
+      if (!pinch) return;
+      swallow(e);
+      const fingers = pair();
+      pinch.mid = mid(fingers);
+      pinch.s = Math.max(0.2 / pinch.z0, Math.min(6 / pinch.z0, dist(fingers) / pinch.d0));
+      this.inner.style.transform = `translate(${pinch.mid.x - pinch.mid0.x}px, ${pinch.mid.y - pinch.mid0.y}px) scale(${pinch.s})`;
+    }, true);
+    const end = (e: PointerEvent) => {
+      if (!touches.delete(e.pointerId)) return;
+      if (!pinch) return;
+      swallow(e);
+      if (touches.size >= 2) return;
+      const { z0, s, mid0, mid: m } = pinch;
+      pinch = null;
+      touches.clear(); // a finger left on the screen doesn't start a new gesture
+      this.inner.style.transform = this.inner.style.transformOrigin = this.inner.style.willChange = "";
+      if (Math.abs(s - 1) > 0.01) this.setZoom(z0 * s, mid0);
+      el.scrollLeft -= m.x - mid0.x;
+      el.scrollTop -= m.y - mid0.y;
+    };
+    el.addEventListener("pointerup", end, true);
+    el.addEventListener("pointercancel", (e) => {
+      // our own cancel for the first finger isn't the end of the pinch
+      if (e.isTrusted) end(e);
+    }, true);
+    // Keep the browser from scrolling or zooming the page while two fingers are down.
+    el.addEventListener("touchmove", (e) => {
+      if (e.touches.length > 1 && e.cancelable) e.preventDefault();
+    }, { passive: false });
   }
   /** Identifies the render resolution (zoom and device pixel ratio) so stale renders can be detected. */
   scaleKey(): number {

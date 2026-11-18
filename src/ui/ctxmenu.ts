@@ -18,7 +18,7 @@ export type MenuItem =
   | "sep"
   | { heading: string }
   | { swatches: MenuSwatch[]; label: string; disabled?: boolean; pick: (index: number, custom?: number[]) => void }
-  | { label: string; run: () => void; shortcut?: string; danger?: boolean; disabled?: boolean };
+  | { label: string; run: () => void; shortcut?: string; danger?: boolean; disabled?: boolean; /** shows a check mark */ checked?: boolean };
 
 /** The open menu, if any. */
 let current: { el: HTMLElement; close: () => void } | null = null;
@@ -67,7 +67,8 @@ function openMenu(clientX: number, clientY: number, items: MenuItem[], returnFoc
       focusables.push(chip);
       return chip;
     })));
-    const button = h("button", { class: "ctx-item" + (item.danger ? " danger" : ""), type: "button", role: "menuitem", disabled: !!item.disabled, tabindex: "-1" }, h("span", { class: "ctx-label", text: item.label }), item.shortcut ? h("span", { class: "ctx-key", text: item.shortcut }) : null);
+    const checkable = item.checked != null;
+    const button = h("button", { class: "ctx-item" + (item.danger ? " danger" : "") + (checkable ? " checkable" : ""), type: "button", role: checkable ? "menuitemradio" : "menuitem", "aria-checked": checkable ? String(item.checked) : null, disabled: !!item.disabled, tabindex: "-1" }, h("span", { class: "ctx-label", text: item.label }), item.shortcut ? h("span", { class: "ctx-key", text: item.shortcut }) : null);
     button.addEventListener("click", () => {
       if (!item.disabled) {
         close();
