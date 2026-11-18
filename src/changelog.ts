@@ -10,6 +10,14 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.27.0",
+    date: "2026-11-18",
+    notes: [
+      "Margin now notices when a new version comes out while it’s open: the version button in the status bar says “Update available” and a message offers Reload. Click the version button to see what’s new before updating. Reloading keeps your unsaved changes.",
+      "After an update, Margin says once which version you’re on, with a link to what’s new.",
+    ],
+  },
+  {
     version: "2.26.0",
     date: "2026-11-18",
     notes: [
@@ -446,6 +454,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.26.0";
+const VERSION = "2.27.0";
 
 export { CHANGELOG, VERSION };

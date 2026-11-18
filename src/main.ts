@@ -3,6 +3,7 @@ import "./ui-fonts";
 import { App, FULL_SAVE_MAX } from "./app";
 import type { Snapshot } from "./app";
 import { Session } from "./session";
+import { Updates } from "./updates";
 import type { SessionRecord, StoredSession } from "./session";
 import { CHANGELOG, VERSION } from "./changelog";
 import { loadAsset } from "./engine/assets";
@@ -1520,7 +1521,8 @@ async function main(): Promise<void> {
     modal({ title: "Open-source licences", body: h("pre", { class: "licences", text }), actions: [{ id: "ok", label: "Close", primary: true }] });
   }
   $("#btn-version").textContent = "v" + VERSION;
-  $("#btn-version").addEventListener("click", () =>
+  /** The What's new window: every release, the current one marked. */
+  const showWhatsNew = () =>
     modal({
       title: `Margin ${VERSION}`,
       body: h(
@@ -1542,8 +1544,17 @@ async function main(): Promise<void> {
         h("p", { class: "hint" }, h("button", { class: "clink", type: "button", text: "Open-source licences", onclick: () => showLicences() })),
       ),
       actions: [{ id: "ok", label: "Close", primary: true }],
-    }),
-  );
+    });
+  // New versions deployed while Margin is open (updates.ts); the version button offers them.
+  const updates = new Updates({
+    beforeReload: async () => {
+      if (interact.editor) interact.commitEditor();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await session.flush();
+    },
+    showWhatsNew: () => void showWhatsNew(),
+  });
+  $("#btn-version").addEventListener("click", () => (updates.available ? updates.offer() : showWhatsNew()));
   $("#btn-flatten").addEventListener("click", async () => {
     if (interact.editor) {
       interact.commitEditor();
@@ -3924,7 +3935,7 @@ async function main(): Promise<void> {
   });
   // Unsaved changes are kept in the browser (session.ts), so leaving only needs a warning when that failed.
   const session = new Session(app);
-  (window as unknown as { __margin: Record<string, unknown> }).__margin.session = session;
+  Object.assign((window as unknown as { __margin: Record<string, unknown> }).__margin, { session, updates });
   session.onTooLarge = () => toast("This document is too large to keep through a refresh. Save it before you close the tab.", "warn", 8e3);
   window.addEventListener("beforeunload", (event) => {
     if (session.atRisk) event.preventDefault();
@@ -3957,6 +3968,7 @@ async function main(): Promise<void> {
     }
     requestAnimationFrame(() => viewer.scrollToPage(app.currentPage));
     toast(`Restored your unsaved changes to ${record.name}`, "ok", 4e3);
+    restoredAt = Date.now();
     return true;
   }
   /** Offers back unsaved changes left by a tab that was closed or crashed. */
@@ -3977,6 +3989,7 @@ async function main(): Promise<void> {
       if (stored) await resumeSession(stored);
     }
   }
+  let restoredAt = 0;
   const own = await session.start();
   if (!own || !(await resumeSession(own))) {
     try {
@@ -3991,6 +4004,7 @@ async function main(): Promise<void> {
   }
   app.setTool("select");
   document.getElementById("boot")?.remove();
+  updates.start(restoredAt ? 4500 : 0);
   if (!own) {
     const orphan = await session.orphan();
     if (orphan) await offerOrphan(orphan);

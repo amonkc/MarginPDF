@@ -229,5 +229,18 @@ log('restored in new tab', JSON.stringify(back) === JSON.stringify(kept));
 await next.reload(); await next.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await next.waitForTimeout(800);
 log('adopted session survives its refresh', [await next.locator('.modal').count(), await next.evaluate(() => window.__margin.app.dirty)]);
 
+// M. a newer version deployed while Margin is open: version button and toast, then the "updated" note after reload
+await next.route('**/version.json', (r) => r.fulfill({ json: { version: '99.0.0', releases: [{ version: '99.0.0', date: '2099-01-01', notes: ['A test release.'] }] } }));
+await next.evaluate(() => window.__margin.updates.check(true)); await next.waitForTimeout(400);
+const current = await next.evaluate(() => document.querySelector('#btn-version').textContent.match(/\d+\.\d+\.\d+/)[0]);
+const vx = (t) => t.split(current).join('X.Y.Z').replace(/\s+/g, ' ').trim();
+log('update noticed', [vx(await next.locator('#btn-version').innerText()), vx(await next.locator('#toast').innerText())]);
+await next.locator('#btn-version').click(); await next.waitForSelector('.modal');
+log('update window', vx(await next.locator('.modal').innerText()));
+await next.unroute('**/version.json'); await next.evaluate(() => localStorage.setItem('margin.version', '1.0.0'));
+await next.locator('.modal .btn.primary').click(); await next.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await next.waitForTimeout(800);
+const restoredMsg = vx(await next.locator('#toast').innerText()); await next.waitForTimeout(4500);
+log('after update reload', [restoredMsg, vx(await next.locator('#toast').innerText()), await next.evaluate(() => window.__margin.app.dirty), vx(await next.locator('#btn-version').innerText())]);
+
 log('errors', errors);
 await b.close();

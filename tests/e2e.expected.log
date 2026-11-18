@@ -1,4 +1,4 @@
-version v2.26.0
+version v2.27.0
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -55,4 +55,7 @@ second open tab: nothing offered [0,false]
 closed tab offered Unsaved changes found Welcome to Margin.pdf was closed with unsaved changes (…). Restore them? Discard Restore
 restored in new tab true
 adopted session survives its refresh [0,true]
+update noticed ["vX.Y.Z · Update available","Margin v99.0.0 is availableReload"]
+update window Margin v99.0.0 is available You have vX.Y.Z. Reload to update; your unsaved changes are kept. v99.0.0 A test release. Later Reload now
+after update reload ["Restored your unsaved changes to Welcome to Margin.pdf","Margin was updated to vX.Y.ZWhat’s new",true,"vX.Y.Z"]
 errors []

@@ -11,6 +11,8 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
 - `src/app.ts` — document state, settings, undo history. `src/main.ts` — boot, ribbon, menus, shortcuts.
 - `src/session.ts` — keeps unsaved work (file buffers + undo history) in IndexedDB `margin-session` through a
   refresh or a closed tab; never stores passwords.
+- `src/updates.ts` — checks `/version.json` (emitted by `vite.config.ts` from the changelog, `no-cache`) when the tab
+  regains focus and every 30 min; marks the version button and offers Reload.
 - `src/changelog.ts` — `CHANGELOG` and `VERSION` (shown in the app).
 - `src/vendor/harfbuzz/` — harfbuzzjs 1.6.3 with one change (explicit init); see its README.
 - `public/` — pdfium.wasm, harfbuzz.wasm, fonts, spelling dictionary, welcome.pdf.

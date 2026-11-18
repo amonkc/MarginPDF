@@ -1215,6 +1215,20 @@ select.fld option {
   color: var(--ink);
   background: var(--chrome-2);
 }
+.version.has-update {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.version.has-update::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
 .boot-version {
   font-size: 11px;
   color: var(--ink-faint);

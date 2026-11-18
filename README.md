@@ -41,6 +41,7 @@ requests and transfer sizes.
 - `src/ui/` — viewer, tools, side panels, dialogs, context menu, clipboard.
 - `src/app.ts` — document state, settings and undo history; `src/main.ts` — startup, ribbon, menus, shortcuts.
 - `src/session.ts` — keeps unsaved work in the browser (IndexedDB) through a refresh or a closed tab.
+- `src/updates.ts` — notices a new deployment (via `/version.json`) while Margin is open and offers Reload.
 - `src/changelog.ts` — version and the in-app list of changes.
 - `src/vendor/harfbuzz/` — harfbuzzjs 1.6.3 (MIT) with an explicit init.
 - `public/` — wasm engines, fonts, spelling dictionary, welcome document.

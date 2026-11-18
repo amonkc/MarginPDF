@@ -1,4 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
+import { CHANGELOG, VERSION } from './src/changelog';
 
 // One build: a static site for Cloudflare. scripts/web.mjs then copies public/ into web/ with content-hashed
 // names and writes caching/security headers. Interface fonts are self-hosted (src/ui-fonts.ts).
@@ -14,9 +15,18 @@ const keepWasmExternal = (): Plugin => ({
   },
 });
 
+/** /version.json: what the open app compares itself with to notice a new deployment (src/updates.ts). */
+const versionFile = (): Plugin => ({
+  name: 'version-file',
+  apply: 'build',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: VERSION, releases: CHANGELOG.slice(0, 10) }) });
+  },
+});
+
 export default defineConfig({
   base: '/',
-  plugins: [keepWasmExternal()],
+  plugins: [keepWasmExternal(), versionFile()],
   build: {
     target: 'es2022',
     outDir: 'web',

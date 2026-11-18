@@ -58,6 +58,9 @@ const headers = `/*
 /index.html
   Cache-Control: no-cache
 
+/version.json
+  Cache-Control: no-cache
+
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
