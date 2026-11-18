@@ -117,8 +117,8 @@ async function main(): Promise<void> {
     const [pdfiumWasm, harfbuzzWasm] = await Promise.all([fetchAsset("pdfium.wasm"), fetchAsset("harfbuzz.wasm")]);
     pdfium = await Pdfium.load(pdfiumWasm);
     await initShaper(harfbuzzWasm);
-  } catch (err: any) {
-    bootStatus.textContent = `The PDF engine couldn't start in this browser: ${err?.message || err}. Try a current version of Chrome, Edge, Safari or Firefox.`;
+  } catch (err) {
+    bootStatus.textContent = `The PDF engine couldn't start in this browser: ${(err as Error | null)?.message || err}. Try a current version of Chrome, Edge, Safari or Firefox.`;
     $("#boot").classList.add("failed");
     return;
   }
@@ -610,7 +610,7 @@ async function main(): Promise<void> {
       h("span", { class: "withunit" }, sizeInput, h("span", { class: "unit", text: "pt" })),
       field(
         "Text",
-        swatches(PALETTES.pen, style.ftColor, (color) => change({ ftColor: color }), "Text color"),
+        swatches(PALETTES.pen, style.ftColor, (color) => change({ ftColor: color as RGBA }), "Text color"),
       ),
       field(
         "Fill",
@@ -697,7 +697,7 @@ async function main(): Promise<void> {
         const annot = app.doc.annots(sel.page).find((candidate: AnnotInfo) => candidate.index === sel.index);
         if (annot) {
           if (annot.subtype === 3 && annot.ft) {
-            const freeText = app.doc.readFreeText(sel.page, sel.index);
+            const freeText = app.doc.readFreeText(sel.page, sel.index)!;
             const ftStyle: FreeTextRibbonStyle = {
               ftSize: freeText.style.size,
               ftColor: freeText.style.color,
@@ -1819,7 +1819,7 @@ async function main(): Promise<void> {
           hitIndex = (searchHits.indexOf(hit) + 1) % searchHits.length;
           showHit();
         }
-      } catch (err: any) {
+      } catch (err) {
         toast(err.message, "err");
       }
   });
@@ -1835,8 +1835,8 @@ async function main(): Promise<void> {
       const skipped = countMatches(app, find, replaceOptions());
       replaceStatus.textContent = `Replaced ${result.count} on ${result.pages} page${result.pages === 1 ? "" : "s"}${skipped ? ` · ${skipped} couldn’t be replaced` : ""}`;
       toast(`Replaced ${result.count} match${result.count === 1 ? "" : "es"}`);
-    } catch (err: any) {
-      replaceStatus.textContent = err.message;
+    } catch (err) {
+      replaceStatus.textContent = (err as Error).message;
     }
   });
   $("#search-prev").addEventListener("click", () => {
@@ -2010,8 +2010,8 @@ async function main(): Promise<void> {
     let source;
     try {
       source = await Growable.fromFile(file);
-    } catch (err: any) {
-      toast(`${file.name}: ${err.message || "could not be read"}`, "err", 6e3);
+    } catch (err) {
+      toast(`${file.name}: ${(err as Error).message || "could not be read"}`, "err", 6e3);
       return;
     }
     await openSource(source, file.name);
@@ -2062,13 +2062,13 @@ async function main(): Promise<void> {
           7e3,
         );
       }
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof PdfError && err.code === 4) {
         const retryPassword = await askPassword(name, !!password);
         return retryPassword != null ? openSource(source, name, retryPassword) : undefined;
       }
       toast(
-        isEngineAbort(err) ? `${name} is too large to open in a browser tab.` : `${name}: ${err.message}`,
+        isEngineAbort(err) ? `${name} is too large to open in a browser tab.` : `${name}: ${(err as Error).message}`,
         "err",
         6e3,
       );
@@ -2085,7 +2085,7 @@ async function main(): Promise<void> {
     for (;;)
       try {
         return pdfium.open(bytes, password);
-      } catch (err: any) {
+      } catch (err) {
         if (!(err instanceof PdfError && err.code === 4)) throw err;
         const entered = await askPassword(file.name, attempts++ > 0, verb);
         if (entered == null) return null;
@@ -2108,8 +2108,8 @@ async function main(): Promise<void> {
     let source;
     try {
       source = await loadPdfFile(file, "replace pages with");
-    } catch (err: any) {
-      return toast(`${file.name}: ${err.message}`, "err", 5e3);
+    } catch (err) {
+      return toast(`${file.name}: ${(err as Error).message}`, "err", 5e3);
     }
     if (!source) return;
     const pageCount = app.doc.pageCount;
@@ -2161,8 +2161,8 @@ async function main(): Promise<void> {
         const { t: targets, s: sources } = parseRanges();
         note.textContent = `${targets.length} page${targets.length === 1 ? "" : "s"} out, ${sources.length} in: the document will have ${pageCount - targets.length + sources.length} pages.`;
         note.classList.remove("err");
-      } catch (err: any) {
-        note.textContent = err.message;
+      } catch (err) {
+        note.textContent = (err as Error).message;
         note.classList.add("err");
       }
     };
@@ -2183,7 +2183,7 @@ async function main(): Promise<void> {
         return;
       }
       ranges = parseRanges();
-    } catch (err: any) {
+    } catch (err) {
       source.close();
       return toast(err.message, "warn");
     }
@@ -2232,7 +2232,7 @@ async function main(): Promise<void> {
       app.selectedPages = new Set(sources.map((page, i) => first + i));
       thumbs.mark();
       viewer.scrollToPage(first);
-    } catch (err: any) {
+    } catch (err) {
       toast(err.message, "err", 5e3);
     } finally {
       source.close();
@@ -2251,7 +2251,7 @@ async function main(): Promise<void> {
         }
         docs.push({ f: file, doc });
       }
-    } catch (err: any) {
+    } catch (err) {
       docs.forEach((entry) => entry.doc.close());
       toast(err.message, "err", 5e3);
       return;
@@ -2349,7 +2349,7 @@ async function main(): Promise<void> {
             : `${message}. Paste with Ctrl+V in this window (this browser won’t let Margin windows share them).`,
         );
         updatePasteButton();
-      } catch (err: any) {
+      } catch (err) {
         toast(err.message, "err");
       } finally {
         copy.close();
@@ -2367,7 +2367,7 @@ async function main(): Promise<void> {
     let doc;
     try {
       doc = pdfium.open(clip.bytes);
-    } catch (err: any) {
+    } catch (err) {
       return toast(err.message, "err");
     }
     const insertAt = at ?? Math.max(...selectedOrCurrentPages()) + 1;
@@ -2548,7 +2548,7 @@ async function main(): Promise<void> {
       const restyle = (patch: Partial<FreeTextStyle>, label: string) =>
         textBoxes.update(page, annot.index, (data) => ({ ...data, style: { ...data.style, ...patch } }), label);
       items.push(
-        colorRow("Text", PALETTES.pen, freeText.style.color, (color) => restyle({ color }, "Text color"), !canEdit),
+        colorRow("Text", PALETTES.pen, freeText.style.color, (color) => restyle({ color: color as RGBA }, "Text color"), !canEdit),
         colorRow("Fill", TEXTBOX_FILLS, freeText.style.fill, (fill) => restyle({ fill }, "Text box fill"), !canEdit),
         colorRow(
           "Border",
@@ -2588,7 +2588,7 @@ async function main(): Promise<void> {
       );
     } else if (subtype !== ANNOT.STAMP && annot.color) {
       const palette =
-        PALETTES.highlight.some((c) => sameColor(c, annot.color)) || subtype === 9 || subtype === 1
+        PALETTES.highlight.some((c) => sameColor(c, annot.color!)) || subtype === 9 || subtype === 1
           ? PALETTES.highlight
           : PALETTES.pen;
       items.push(
@@ -2670,8 +2670,8 @@ async function main(): Promise<void> {
           chipRow(
             "Heads",
             [
-              { text: "Open", label: "Open arrowheads", v: "OpenArrow" },
-              { text: "Filled", label: "Filled arrowheads", v: "ClosedArrow" },
+              { text: "Open", label: "Open arrowheads", v: "OpenArrow" as LineEnd },
+              { text: "Filled", label: "Filled arrowheads", v: "ClosedArrow" as LineEnd },
             ],
             (v) => v === head,
             (v) =>
@@ -2743,7 +2743,7 @@ async function main(): Promise<void> {
       })
       .catch((err) => toast(err.message, "warn"));
   /** Annotation subtypes that can be copied, cut and duplicated. */
-  const COPYABLE_SUBTYPES = new Set([
+  const COPYABLE_SUBTYPES = new Set<number>([
     ANNOT.TEXT,
     ANNOT.FREETEXT,
     ANNOT.LINE,
@@ -2978,7 +2978,7 @@ async function main(): Promise<void> {
     const view = viewer.views[page];
     const items: MenuItem[] = [{ heading: `${kind}${annot.author ? " · " + annot.author : ""}` }];
     if (isFreeText && interact.textbox && view) {
-      items.push({ label: "Edit text", disabled: !canEdit, run: () => interact.textbox.edit(view, index) });
+      items.push({ label: "Edit text", disabled: !canEdit, run: () => interact.textbox!.edit(view, index) });
     } else {
       items.push({
         label: annot.contents && !(isStamp && annot.contents === "Signature") ? "Edit comment" : "Add comment",
@@ -3058,7 +3058,7 @@ async function main(): Promise<void> {
         await arrange.replaceImage(await encodeImage(picked, width, height), picked.w, picked.h);
         picked.bitmap.close();
         URL.revokeObjectURL(picked.url);
-      } catch (err: any) {
+      } catch (err) {
         toast(err.message, "err");
       }
   }
@@ -3082,7 +3082,7 @@ async function main(): Promise<void> {
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) throw new Error("Couldn’t encode the image");
       await saveFile(new Uint8Array(await blob.arrayBuffer()), baseName + ".png", "image/png");
-    } catch (err: any) {
+    } catch (err) {
       toast(err.message, "err");
     }
   }
@@ -3107,7 +3107,7 @@ async function main(): Promise<void> {
             label: "Edit text",
             run: () => {
               app.setTool("select");
-              interact.textbox.edit(view, annot.index);
+              interact.textbox!.edit(view, annot.index);
             },
           });
         } else {
@@ -3128,7 +3128,7 @@ async function main(): Promise<void> {
       } else if (item.label === "Link") {
         const link = interact.links?.of(page).find((l: LinkInfo) => l.index === item.annot);
         if (link && interact.links) {
-          menu.push({ label: "Edit link…", disabled: !canEdit, run: () => interact.links.editDialog(page, link) });
+          menu.push({ label: "Edit link…", disabled: !canEdit, run: () => interact.links!.editDialog(page, link) });
         }
       } else if (item.kind === "image") {
         menu.push(
@@ -3268,10 +3268,10 @@ async function main(): Promise<void> {
         disabled: !canAnnot || !interact.textbox,
         run: () => {
           app.setTool("select");
-          interact.textbox.edit(view, null, {
+          interact.textbox!.edit(view, null, {
             box: { l: point.x, r: point.x + 200, t: point.y, b: point.y - app.settings.ftSize * 2.2 },
             text: "",
-            style: interact.textbox.style(),
+            style: interact.textbox!.style(),
           });
         },
       },
@@ -3305,14 +3305,14 @@ async function main(): Promise<void> {
         {
           label: link.uri ? "Open link" : "Go to page",
           disabled: !link.uri && !(link.page != null && link.page >= 0),
-          run: () => interact.links.follow(link),
+          run: () => interact.links!.follow(link),
         },
         ...(link.uri
           ? [
               {
                 label: "Copy link address",
                 run: () => {
-                  navigator.clipboard?.writeText(link.uri).then(
+                  navigator.clipboard?.writeText(link.uri!).then(
                     () => toast("Link address copied"),
                     () => toast("Couldn’t reach the clipboard", "warn"),
                   );
@@ -3321,7 +3321,7 @@ async function main(): Promise<void> {
             ]
           : []),
         "sep",
-        { label: "Edit link…", disabled: !canEdit, run: () => interact.links.editDialog(page, link) },
+        { label: "Edit link…", disabled: !canEdit, run: () => interact.links!.editDialog(page, link) },
         {
           label: "Remove link",
           danger: true,
@@ -3417,9 +3417,9 @@ async function main(): Promise<void> {
             if (!annotPress || menuOpen()) return;
             const page = +annotPress.el.closest<HTMLElement>(".page")!.dataset.index!;
             if (annotPress.el.classList.contains("abox")) {
-              annotMenu(page, +annotPress.el.dataset.annot, annotPress.x, annotPress.y, annotPress.el);
+              annotMenu(page, +annotPress.el.dataset.annot!, annotPress.x, annotPress.y, annotPress.el);
             } else {
-              linkMenu(page, +annotPress.el.dataset.link, annotPress.x, annotPress.y, annotPress.el);
+              linkMenu(page, +annotPress.el.dataset.link!, annotPress.x, annotPress.y, annotPress.el);
             }
             annotPress = null;
           }, 550),
@@ -3449,7 +3449,7 @@ async function main(): Promise<void> {
     const thumb = thumbOf(event.target);
     if (thumb) {
       event.preventDefault();
-      pageMenu(+thumb.dataset.index, event.clientX, event.clientY, thumb);
+      pageMenu(+thumb.dataset.index!, event.clientX, event.clientY, thumb);
     }
   });
   thumbs.list.addEventListener("keydown", (event) => {
@@ -3458,7 +3458,7 @@ async function main(): Promise<void> {
       if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
         event.preventDefault();
         const rect = thumb.getBoundingClientRect();
-        pageMenu(+thumb.dataset.index, rect.left + rect.width / 2, rect.top + rect.height / 2, thumb);
+        pageMenu(+thumb.dataset.index!, rect.left + rect.width / 2, rect.top + rect.height / 2, thumb);
       } else if ((event.key === "Delete" || event.key === "Backspace") && !event.metaKey && !event.ctrlKey) {
         event.preventDefault();
         event.stopPropagation();
@@ -3473,7 +3473,7 @@ async function main(): Promise<void> {
       thumbPress = {
         t: window.setTimeout(() => {
           if (thumbPress && !menuOpen()) {
-            pageMenu(+thumbPress.el.dataset.index, thumbPress.x, thumbPress.y, thumbPress.el);
+            pageMenu(+thumbPress.el.dataset.index!, thumbPress.x, thumbPress.y, thumbPress.el);
           }
           thumbPress = null;
         }, 550),
@@ -3569,7 +3569,7 @@ async function main(): Promise<void> {
       } else if (action === "extract") {
         await extractDialog(app, pdfium, pages, saveFile);
       }
-    } catch (err: any) {
+    } catch (err) {
       toast(err.message, "err");
     }
   }
@@ -3578,8 +3578,8 @@ async function main(): Promise<void> {
     let bytes;
     try {
       bytes = app.exportBytes();
-    } catch (err: any) {
-      toast(isEngineAbort(err) ? ENGINE_FULL : err.message, "err", 8e3);
+    } catch (err) {
+      toast(isEngineAbort(err) ? ENGINE_FULL : (err as Error).message, "err", 8e3);
       return false;
     }
     await saveFile(bytes, app.editedName);
@@ -3599,13 +3599,13 @@ async function main(): Promise<void> {
           refreshTopBar();
         }
         toast(`Saved ${filename}`);
-      } catch (err: any) {
-        if (err?.code === "declined") {
+      } catch (err) {
+        if ((err as { code?: string } | null)?.code === "declined") {
           toast("Save cancelled", "warn");
-        } else if (err?.code === "rate_limited") {
+        } else if ((err as { code?: string } | null)?.code === "rate_limited") {
           toast("A save prompt is already open", "warn");
         } else {
-          toast(`Couldn’t save: ${err?.message || err?.code || "unknown error"}`, "err", 5e3);
+          toast(`Couldn’t save: ${(err as Error | null)?.message || (err as { code?: string } | null)?.code || "unknown error"}`, "err", 5e3);
         }
       }
       return;

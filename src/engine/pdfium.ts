@@ -1,6 +1,5 @@
 import { init as ji } from '@embedpdf/pdfium';
 import type { WrappedPdfiumModule } from '@embedpdf/pdfium';
-import { DEFAULT_FT_BORDER_WIDTH } from './types';
 import type {
   AnnotInfo,
   AnnotStyle,
@@ -27,6 +26,11 @@ const ANNOT = { TEXT: 1, LINK: 2, FREETEXT: 3, LINE: 4, SQUARE: 5, CIRCLE: 6, HI
 const ANNOT_NAMES: Record<number, string> = { 1: "Note", 3: "Text box", 4: "Line", 5: "Rectangle", 6: "Ellipse", 9: "Highlight", 10: "Underline", 11: "Squiggly", 12: "Strikeout", 13: "Stamp", 15: "Drawing", 28: "Redaction" };
 /** Form field types (FPDF_FORMFIELD_*). */
 const FIELD = { PUSHBUTTON: 1, CHECKBOX: 2, RADIO: 3, COMBO: 4, LIST: 5, TEXT: 6, SIGNATURE: 7 } as const;
+/**
+ * Border width (pt) of a text box whose style has a border colour but no `borderWidth`. Same value as
+ * DEFAULT_FT_BORDER_WIDTH in ./text (not imported: text.ts imports this module).
+ */
+const DEFAULT_FT_BORDER_WIDTH = 1;
 /** Render flags: FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER (RGBA output). */
 const RENDER_FLAGS = 17;
 
@@ -1539,32 +1543,37 @@ class Doc {
       return out;
     });
   }
-  /** Add a link over `rect` to a URI or to the top of a page (which is loaded meanwhile). */
+  /**
+   * Add a link over `rect` to a URI or to the top of a page. A target page other than `index` is loaded
+   * through withPage (form hooks, `loaded`/`depth` bookkeeping) for as long as the link is built.
+   */
   addLink(index: number, rect: Rect, target: LinkTarget): void {
-    const P = this.P, lib = this.lib, destPage = "page" in target ? P.FPDF_LoadPage(this.h, target.page) : 0;
-    this.depth++;
-    try {
-      this.withPage(index, (page) => {
-        const annot = P.FPDFPage_CreateAnnot(page, ANNOT.LINK);
-        if (!annot) throw new Error("Could not create the link");
-        try {
-          setAnnotRect(lib, annot, rect);
-          P.FPDFAnnot_SetBorder(annot, 0, 0, 0);
-          let action = 0;
-          if ("uri" in target) action = P.EPDFAction_CreateURI(this.h, target.uri);
-          else {
-            const dest = P.EPDFDest_CreateXYZ(destPage, false, 0, true, P.FPDF_GetPageHeightF(destPage), false, 0);
-            action = dest ? P.EPDFAction_CreateGoTo(this.h, dest) : 0;
-          }
-          if (!action || !P.EPDFAnnot_SetAction(annot, action)) throw new Error("Could not set the link target");
-        } finally {
-          P.FPDFPage_CloseAnnot(annot);
+    if ("page" in target && target.page !== index) this.withPage(target.page, (destPage) => this.insertLink(index, rect, target, destPage));
+    else this.insertLink(index, rect, target, 0);
+  }
+  /** addLink's work on page `index`; `destPage` is the loaded target page (0: the target is `index` itself or a URI). */
+  private insertLink(index: number, rect: Rect, target: LinkTarget, destPage: number): void {
+    const P = this.P, lib = this.lib;
+    this.withPage(index, (page) => {
+      const annot = P.FPDFPage_CreateAnnot(page, ANNOT.LINK);
+      if (!annot) throw new Error("Could not create the link");
+      try {
+        setAnnotRect(lib, annot, rect);
+        P.FPDFAnnot_SetBorder(annot, 0, 0, 0);
+        let action = 0;
+        if ("uri" in target) {
+          action = P.EPDFAction_CreateURI(this.h, target.uri);
+          if (!action) throw new Error("Could not set the link’s web address");
+        } else {
+          const toPage = destPage || page, dest = P.EPDFDest_CreateXYZ(toPage, false, 0, true, P.FPDF_GetPageHeightF(toPage), false, 0);
+          action = dest ? P.EPDFAction_CreateGoTo(this.h, dest) : 0;
+          if (!action) throw new Error(`Could not point the link at page ${target.page + 1}`);
         }
-      });
-    } finally {
-      this.depth--;
-      if (destPage) P.FPDF_ClosePage(destPage);
-    }
+        if (!P.EPDFAnnot_SetAction(annot, action)) throw new Error("Could not attach the target to the link");
+      } finally {
+        P.FPDFPage_CloseAnnot(annot);
+      }
+    });
   }
   setLinePoints(index: number, annotIndex: number, a: Pt, b: Pt): void {
     this.withPage(index, (page) => {

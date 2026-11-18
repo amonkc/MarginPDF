@@ -9,6 +9,8 @@ export type Pt = { x: number; y: number };
 export type Box = { x: number; y: number; w: number; h: number };
 /** Colour as 0–255 red, green, blue, alpha. */
 export type RGBA = [number, number, number, number];
+/** A PDFium handle (FPDF_PAGE, FPDF_ANNOTATION, FPDF_PAGEOBJECT, …): a wasm pointer, 0 for none. */
+export type Handle = number;
 /** PDF matrix [a b c d e f]. */
 export type Matrix = [number, number, number, number, number, number];
 
@@ -35,12 +37,6 @@ export type AnnotInfo = {
 /** How an annotation is drawn: stroke width (pt), dashed or solid, interior fill, opacity 0–1, line arrowheads. */
 export type AnnotStyle = { width: number; dashed: boolean; fill: RGBA | null; opacity: number; ends?: [LineEnd, LineEnd] };
 
-/**
- * Border width (pt) of a Margin text box whose style has a border colour but no `borderWidth` (the width the
- * text box editor gives new boxes).
- */
-export const DEFAULT_FT_BORDER_WIDTH = 1;
-
 /** Style of a Margin text box / callout. */
 export type FreeTextStyle = {
   fontKey: string;
@@ -48,7 +44,7 @@ export type FreeTextStyle = {
   color: RGBA;
   fill: RGBA | null;
   border: RGBA | null;
-  /** border width in points when `border` is set; DEFAULT_FT_BORDER_WIDTH when missing */
+  /** border width in points when `border` is set; 1 when missing (DEFAULT_FT_BORDER_WIDTH in engine/text) */
   borderWidth?: number;
   [k: string]: unknown;
 };
