@@ -2,7 +2,7 @@
 // Connected to the GitHub repo with Workers Builds, every push to the production branch builds and deploys.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "margin",
+  "name": "marginpdf",
   "compatibility_date": "2026-11-01",
   "assets": {
     "directory": "./web",
