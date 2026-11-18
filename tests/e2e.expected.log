@@ -1,0 +1,48 @@
+version v2.24.1
+pages [3,[612,792],[612,792],[612,792]]
+search Margin 2
+annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
+annots after add [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"],[5,330,340,"214,69,52"],[6,470,340,null],[4,57,244,"37,99,235"],[15,297,247,"24,26,33"],[1,560,580,"246,214,74"]]
+styles [[1,false,null,100,null],[1,false,null,100,null],[2,false,null,100,null],[2,false,"134,222,140",50,null],[3,false,null,100,["None","ClosedArrow"]],[2,false,null,100,null],[1,false,null,100,null]]
+menu 2 RECTANGLE · ME | Add comment | Reply | Outline | Fill | Width | Style | Opacity | Cut | Copy | Paste | Duplicate | Bring to front | Send to back | Move & resize | Delete
+menu 3 ELLIPSE · ME | Add comment | Reply | Outline | Fill | Width | Style | Opacity | Cut | Copy | Paste | Duplicate | Bring to front | Send to back | Move & resize | Delete
+menu 4 ARROW · ME | Add comment | Reply | Color | Width | Style | Arrows | Heads | Reverse direction | Opacity | Cut | Copy | Paste | Duplicate | Bring to front | Send to back | Move & resize | Delete
+menu 5 DRAWING · ME | Add comment | Reply | Color | Width | Style | Opacity | Cut | Copy | Paste | Duplicate | Bring to front | Send to back | Move & resize | Delete
+menu 6 NOTE · ME | Edit comment | Reply | Copy comment text | Color | Cut | Copy | Paste | Duplicate | Bring to front | Send to back | Move & resize | Delete
+rect style {"width":2,"dashed":true,"fill":[246,214,74,255],"opacity":1}
+ribbon select SELECT | Outline | Fill | Opacity
+after dup 8
+paste p2 1
+undo paste 0
+redo paste 1
+ribbon r RECTANGLE | Outline | Fill | Opacity
+drew r 1
+ribbon o ELLIPSE | Outline | Fill | Opacity
+drew o 1
+ribbon l LINE & ARROW
+drew l 1
+ribbon d DRAW
+drew d 1
+textbox ["Box text here"]
+search added 1
+edit text [1,0]
+arrange ribbon Align left edges,Align centres,Align right edges,Align tops,Align middles,Align bottoms,Distribute across (3 or more),Distribute down (3 or more),Match width of the last clicked,Match height of the last clicked,Match size of the last clicked,Bring to front (Ctrl+Shift+]),Bring forward (Ctrl+]),Send backward (Ctrl+[),Send to back (Ctrl+Shift+[)
+arrange menu 33 OBJECTS | Align |  | Distribute across | Distribute down | Match | Bring to front | Bring forward | Send backward | Send to back | Cut | Copy | Paste | Duplicate 33 | Delete 33 objects
+page op Rotate right [3,[792,612]]
+page op Insert blank page after [4,[792,612]]
+undo pages [3,[612,792]]
+dialog Print… Print
+dialog Export pages as images… Export pages as images
+dialog Compress… Compress
+dialog Password protection… Protect with a password
+dialog Watermark & background… Watermark & background
+dialog Header & footer… Header & footer
+dialog Flatten… Flatten
+dialog Extract or split pages… Extract pages
+dialog Check spelling… Spelling
+bookmarks ["",true]
+comments 14
+saved {"pages":3,"annots":[13,1,0],"text":[1,1,1]}
+protect [true,3]
+touch drag moved true
+errors []
