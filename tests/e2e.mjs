@@ -159,6 +159,30 @@ log('protect', await M(async () => {
   await app.unprotect(); return [locked, n];
 }).catch((e) => 'error: ' + e.message));
 
+
+// K. regression checks for fixes made in 2.24.2
+log('link to another page', await M(async () => {
+  const { app } = window.__margin; const d = app.doc;
+  await app.mutate('t', { pages: [0] }, () => d.addLink(0, { l: 60, r: 160, t: 760, b: 740 }, { page: 1 }));
+  const l = d.links(0).at(-1); return l ? [l.page ?? l.target?.page ?? null] : 'none';
+}).catch((e) => 'error: ' + e.message));
+log('text box border default', await M(async () => {
+  const { app } = window.__margin; const d = app.doc;
+  const data = d.annots(0).filter((a) => a.subtype === 3).map((a) => d.readFreeText(0, a.index)).filter(Boolean)[0];
+  if (!data) return 'no text box';
+  const k = d.annots(0).find((a) => a.subtype === 3).index;
+  const style = { ...data.style, border: [214, 69, 52, 255] }; delete style.borderWidth;
+  await app.mutate('t', { pages: [0] }, async () => { const ai = d.annots(0).find((a) => a.subtype === 3).index; d.writeFreeText(0, ai, { ...data, style }, data.box, ''); });
+  const back = d.readFreeText(0, k); const st = d.annotStyle(0, k);
+  return [back && back.style.borderWidth, st && st.width];
+}).catch((e) => 'error: ' + e.message));
+await page.locator('#btn-more').click(); await page.waitForSelector('.ctxmenu');
+await page.locator('.ctxmenu .ctx-item', { hasText: 'Print…' }).first().click(); await page.waitForSelector('.modal');
+await page.locator('.modal input[name=pr-pages][value=range]').check(); await page.locator('#print-range').fill('');
+await page.locator('.modal .btn.primary').click(); await page.waitForTimeout(500);
+log('print empty range message', await page.locator('#toast').innerText());
+await page.keyboard.press('Escape'); await M(() => document.querySelector('.modal-host:not([hidden]) .modal-scrim')?.click()); await page.waitForTimeout(300);
+
 // J. touch: drag an annotation with a finger
 const ctx = await b.newContext({ ...devices['Pixel 7'] }); const ph = await ctx.newPage();
 ph.on('pageerror', (e) => errors.push('phone: ' + e.message));

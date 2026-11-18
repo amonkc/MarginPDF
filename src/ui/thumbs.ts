@@ -69,7 +69,7 @@ class Thumbs {
   }
   /** The insertion point before page `at` (or after the last page when `at === pageCount`). */
   gap(at: number, pageCount: number): HTMLElement {
-    const where = at === 0 ? "before page 1" : at === pageCount ? `after page ${pageCount}` : `between pages ${at} and ${at + 1}`, menuItem = (text: string, run: () => void) => h("button", { class: "gap-item", type: "button", role: "menuitem", text, onclick: (e) => {
+    const where = at === 0 ? "before page 1" : at === pageCount ? `after page ${pageCount}` : `between pages ${at} and ${at + 1}`, menuItem = (text: string, run: () => void) => h("button", { class: "gap-item", type: "button", role: "menuitem", text, onclick: (e: MouseEvent) => {
       e.stopPropagation();
       closeMenu();
       run();

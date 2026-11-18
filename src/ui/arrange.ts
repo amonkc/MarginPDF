@@ -7,21 +7,9 @@ import { imageMatrix } from './images';
 import { groupTextRuns } from './interact';
 import type { AnnotInfo, Box, ClipObj, FreeTextData, ImageSrc, Matrix, Pt, Rect } from '../engine/types';
 import type { RichText } from '../engine/richtext';
-
-/** The parts of a viewer page view that the arrange tool uses. */
-interface PageView {
-  index: number;
-  /** page → overlay pixels */
-  tf: { a: number; b: number; c: number; d: number; e: number; f: number; apply(x: number, h): [number, number]; box(r: Rect): Box };
-  /** overlay pixels → page */
-  inv: { a: number; b: number; c: number; d: number; e: number; f: number; apply(x: number, h): [number, number] };
-  ov: HTMLElement;
-  svg: SVGSVGElement;
-  /** page size in points */
-  w: number;
-  h: number;
-  visible: boolean;
-}
+import type { RestackMode } from '../engine/pdfium';
+import type { App } from '../app';
+import type { PageView, Viewer } from './viewer';
 
 /**
  * One thing the Move & resize tool can select on a page.
@@ -55,6 +43,8 @@ type Selection = { page: number; key: string };
 /** Image crop in progress: the kept part of the image as fractions of its unit square (y up). */
 type CropFrac = { x0: number; y0: number; x1: number; y1: number };
 type ImageCrop = { page: number; key: string; obj: number; f: CropFrac };
+/** Edges and centre lines that `align` can line items up on. */
+type AlignEdge = "left" | "hcenter" | "right" | "top" | "vmiddle" | "bottom";
 
 /** Resize handle positions, clockwise from top-left. */
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -69,8 +59,8 @@ const SNAP_PX = 5;
  * The selection is `sel` (the primary item, last clicked) plus `extra` (other keys on the same page).
  */
 class Arrange {
-  app: any;
-  v: any;
+  app: App;
+  v: Viewer;
   sel: Selection | null = null;
   extra: string[] = [];
   /** Items per page index, smallest first; rebuilt on each overlay. */
@@ -81,7 +71,7 @@ class Arrange {
   onFreeText: (page: number, annot: number, change: (d: FreeTextData) => FreeTextData, label: string) => void = () => {
   };
   cropping: ImageCrop | null = null;
-  constructor(app: any, viewer: any) {
+  constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
   }
@@ -323,7 +313,7 @@ class Arrange {
             // Side handles on wrapping text change only its width.
             height = start.h;
             top = start.y;
-          } else if ((item.uniform || handle.length === 2) && !(e.shiftKey && !item.uniform) && handle.length === 2) {
+          } else if (handle.length === 2 && (item.uniform || !e.shiftKey)) {
             const scale = Math.max(width / start.w, height / start.h);
             width = start.w * scale;
             height = start.h * scale;
@@ -333,24 +323,7 @@ class Arrange {
           box = { x: left, y: top, w: width, h: height };
         } else {
           box = { ...start, x: start.x + dx, y: start.y + dy };
-          if (!e.altKey) {
-            // Snaps the near edge, centre or far edge (whichever is closest) to the nearest target and draws its guide.
-            const snapAxis = (pos: number, size: number, targets: number[], vertical: boolean) => {
-              let best = SNAP_PX + 1, snapped = pos, guideAt = -1;
-              for (const offset of [0, size / 2, size]) for (const target of targets) {
-                const dist = Math.abs(pos + offset - target);
-                if (dist < best) {
-                  best = dist;
-                  snapped = target - offset;
-                  guideAt = target;
-                }
-              }
-              if (guideAt >= 0) guides.append(h("div", { class: "oguide " + (vertical ? "v" : "h"), style: vertical ? { left: guideAt + "px" } : { top: guideAt + "px" } }));
-              return snapped;
-            };
-            box.x = snapAxis(box.x, box.w, snapXs, true);
-            box.y = snapAxis(box.y, box.h, snapYs, false);
-          }
+          if (!e.altKey) box = this.snap(box, snapXs, snapYs, guides);
         }
         Object.assign(frameEl.style, { left: box.x - 2 + "px", top: box.y - 2 + "px", width: box.w + 4 + "px", height: box.h + 4 + "px" });
         if (label) label.textContent = `${item.label} · ${this.size(pv, box)}`;
@@ -468,11 +441,11 @@ class Arrange {
     const doc = this.app.doc, page = pv.index;
     if (item.kind === "annot") {
       const origin = pv.inv.apply(0, 0), moved = pv.inv.apply(dx, dy);
-      doc.moveAnnot(page, item.annot, moved[0] - origin[0], moved[1] - origin[1]);
+      doc.moveAnnot(page, item.annot!, moved[0] - origin[0], moved[1] - origin[1]);
       return;
     }
     const box = pv.tf.box(item.bounds), m = this.pageMap(pv, box, { ...box, x: box.x + dx, y: box.y + dy });
-    if (item.kind === "block") doc.transformBlock(page, item.block, m, 1);
+    if (item.kind === "block") doc.transformBlock(page, item.block!, m, 1);
     else doc.transformObjects(page, item.objs, m);
   }
   /**
@@ -488,11 +461,11 @@ class Arrange {
     }
     if (item.kind === "annot") {
       const c = [pv.inv.apply(to.x, to.y), pv.inv.apply(to.x + to.w, to.y + to.h)];
-      doc.resizeAnnot(page, item.annot, { l: Math.min(c[0][0], c[1][0]), r: Math.max(c[0][0], c[1][0]), b: Math.min(c[0][1], c[1][1]), t: Math.max(c[0][1], c[1][1]) });
+      doc.resizeAnnot(page, item.annot!, { l: Math.min(c[0][0], c[1][0]), r: Math.max(c[0][0], c[1][0]), b: Math.min(c[0][1], c[1][1]), t: Math.max(c[0][1], c[1][1]) });
       return true;
     }
     const m = this.pageMap(pv, from, to);
-    if (item.kind === "block") doc.transformBlock(page, item.block, m, item.uniform ? to.w / from.w : 1);
+    if (item.kind === "block") doc.transformBlock(page, item.block!, m, item.uniform ? to.w / from.w : 1);
     else doc.transformObjects(page, item.objs, m);
     return true;
   }
@@ -505,10 +478,10 @@ class Arrange {
     }
   }
   /** Aligns the selection to its group box, or a single item to the page. */
-  align(edge: "left" | "hcenter" | "right" | "top" | "vmiddle" | "bottom"): void {
+  align(edge: AlignEdge): void {
     const items = this.selected();
     if (!items.length) return;
-    const pv = this.v.views[this.sel!.page], target = items.length === 1 ? { x: 0, y: 0, w: pv.w * this.v.zoom, h: pv.h * this.v.zoom } : this.groupBox(pv, items), names = { left: "left", hcenter: "centre", right: "right", top: "top", vmiddle: "middle", bottom: "bottom" };
+    const pv = this.v.views[this.sel!.page], target = items.length === 1 ? { x: 0, y: 0, w: pv.w * this.v.zoom, h: pv.h * this.v.zoom } : this.groupBox(pv, items), names: Record<AlignEdge, string> = { left: "left", hcenter: "centre", right: "right", top: "top", vmiddle: "middle", bottom: "bottom" };
     this.app.mutate(items.length === 1 ? `Align to page ${names[edge]}` : `Align ${names[edge]}`, { pages: [pv.index] }, () => {
       for (const item of items) {
         const box = pv.tf.box(item.bounds);
@@ -555,10 +528,10 @@ class Arrange {
     }).catch((err) => toast(err.message, "err"));
   }
   /** Changes the stacking order of the selection; clears the selection afterwards. */
-  restack(dir: "front" | "back" | "forward" | "backward"): void {
+  restack(dir: RestackMode): void {
     const items = this.selected();
     if (!items.length) return;
-    const page = this.sel!.page, objs = items.filter((it) => it.kind !== "annot").flatMap((it) => it.objs), annots = items.filter((it) => it.kind === "annot").map((it) => it.annot), labels = { front: "Bring to front", back: "Send to back", forward: "Bring forward", backward: "Send backward" };
+    const page = this.sel!.page, objs = items.filter((it) => it.kind !== "annot").flatMap((it) => it.objs), annots = items.filter((it) => it.kind === "annot").map((it) => it.annot!), labels: Record<RestackMode, string> = { front: "Bring to front", back: "Send to back", forward: "Bring forward", backward: "Send backward" };
     let changed = false;
     this.app.mutate(labels[dir], { pages: [page] }, () => {
       if (objs.length && this.app.doc.restackObjects(page, objs, dir)) changed = true;
@@ -601,7 +574,7 @@ class Arrange {
         return;
       }
       const [p1, p2] = which === 0 ? [end, anchor] : [anchor, end];
-      this.app.mutate("Edit line", { pages: [pv.index] }, () => this.app.doc.setLinePoints(pv.index, item.annot, p1, p2)).catch((err) => toast(err.message, "err"));
+      this.app.mutate("Edit line", { pages: [pv.index] }, () => this.app.doc.setLinePoints(pv.index, item.annot!, p1, p2)).catch((err) => toast(err.message, "err"));
     };
     ov.addEventListener("pointermove", onMove);
     ov.addEventListener("pointerup", onUp);
@@ -620,7 +593,7 @@ class Arrange {
       const wrap = item.wrap, blockScale = Math.hypot(wrap.bm[0], wrap.bm[1]) || 1, dx = to.x - from.x, p0 = pv.inv.apply(from.x, from.y), p1 = pv.inv.apply(from.x + dx, from.y), pxPerUnit = (pv.ov.clientWidth / pv.w || this.v.zoom) * blockScale, next = { ...wrap, width: Math.max(12, wrap.width! + (to.w - from.w) / pxPerUnit), bm: [wrap.bm[0], wrap.bm[1], wrap.bm[2], wrap.bm[3], wrap.bm[4] + (p1[0] - p0[0]), wrap.bm[5] + (p1[1] - p0[1])] };
       this.app.mutate("Reflow text", { pages: [page] }, async () => {
         removeById(doc, page, item.block!);
-        await writeRichText(doc, page, next, item.block);
+        await writeRichText(doc, page, next, item.block!);
       }).catch((err) => toast(err.message, "err"));
       return;
     }
@@ -633,12 +606,12 @@ class Arrange {
       if (item.kind === "annot") {
         if (resized) {
           const c = [pv.inv.apply(to.x, to.y), pv.inv.apply(to.x + to.w, to.y + to.h)];
-          doc.resizeAnnot(page, item.annot, { l: Math.min(c[0][0], c[1][0]), r: Math.max(c[0][0], c[1][0]), b: Math.min(c[0][1], c[1][1]), t: Math.max(c[0][1], c[1][1]) });
+          doc.resizeAnnot(page, item.annot!, { l: Math.min(c[0][0], c[1][0]), r: Math.max(c[0][0], c[1][0]), b: Math.min(c[0][1], c[1][1]), t: Math.max(c[0][1], c[1][1]) });
         } else {
           const a = pv.inv.apply(from.x, from.y), b = pv.inv.apply(to.x, to.y);
-          doc.moveAnnot(page, item.annot, b[0] - a[0], b[1] - a[1]);
+          doc.moveAnnot(page, item.annot!, b[0] - a[0], b[1] - a[1]);
         }
-      } else if (item.kind === "block") doc.transformBlock(page, item.block, matrix, item.uniform ? sx : 1);
+      } else if (item.kind === "block") doc.transformBlock(page, item.block!, matrix, item.uniform ? sx : 1);
       else doc.transformObjects(page, item.objs, matrix);
     }).catch((err) => toast(err.message, "err"));
   }
@@ -692,7 +665,7 @@ class Arrange {
     const doc = this.app.doc, page = sel.page;
     this.sel = null;
     this.app.mutate(`Delete ${item.label.toLowerCase()}`, { pages: [page] }, () => {
-      if (item.kind === "annot") doc.deleteAnnot(page, item.annot);
+      if (item.kind === "annot") doc.deleteAnnot(page, item.annot!);
       else removeObjects(doc, page, item.objs);
     }).catch((err) => toast(err.message, "err"));
     return true;
@@ -708,7 +681,7 @@ class Arrange {
   clipOf(page: number, items: ArrangeItem[] = this.selected()): { items: ClipObj[]; bounds: Rect; skipped: number } | null {
     const copyable = items.filter((it) => this.canDuplicate(it)), notCopyable = items.length - copyable.length;
     if (!copyable.length) return null;
-    const { items: clip, skipped } = this.app.doc.readClip(page, copyable.filter((it) => it.kind === "annot").map((it) => it.annot), copyable.filter((it) => it.kind === "image").flatMap((it) => it.objs));
+    const { items: clip, skipped } = this.app.doc.readClip(page, copyable.filter((it) => it.kind === "annot").map((it) => it.annot!), copyable.filter((it) => it.kind === "image").flatMap((it) => it.objs));
     return clip.length ? { items: clip, bounds: unionRect(copyable.map((it) => it.bounds)), skipped: notCopyable + skipped } : null;
   }
   /**
@@ -798,7 +771,7 @@ class Arrange {
    * Applies the image crop: cuts the kept pixels out, re-encodes them with `encode` (told whether the
    * original was a JPEG) and shrinks the image matrix to the kept part, so the cut part leaves the file.
    */
-  async applyCrop(encode: (rgba: Uint8ClampedArray, w: number, h: number, jpeg: any) => Promise<ImageSrc> | ImageSrc): Promise<void> {
+  async applyCrop(encode: (rgba: Uint8ClampedArray, w: number, h: number, jpeg: boolean) => Promise<ImageSrc> | ImageSrc): Promise<void> {
     const crop = this.cropping;
     if (!crop) return;
     this.cropping = null;
@@ -878,13 +851,22 @@ class Arrange {
         }
         crop.f = next;
         render();
-      }, onUp = () => {
+      }, detach = () => {
         frameEl.removeEventListener("pointermove", onMove);
         frameEl.removeEventListener("pointerup", onUp);
+        frameEl.removeEventListener("pointercancel", onCancel);
+      }, onUp = () => {
+        detach();
         this.onChange();
+      }, onCancel = () => {
+        // Cancelled pointer: put the crop frame back where the drag started.
+        detach();
+        crop.f = start;
+        render();
       };
       frameEl.addEventListener("pointermove", onMove);
       frameEl.addEventListener("pointerup", onUp);
+      frameEl.addEventListener("pointercancel", onCancel);
     });
     return true;
   }

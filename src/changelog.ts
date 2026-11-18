@@ -10,6 +10,17 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.24.2",
+    date: "2026-11-18",
+    notes: [
+      "Comments and text boxes: deleting a comment no longer leaves its pop-up note behind; text boxes with a border but no saved width keep their 1 pt border (also in other PDF viewers) and size and draw correctly.",
+      "Links and forms: adding a link to another page loads that page properly and says clearly what went wrong if it fails; radio buttons with custom choice names no longer have unrelated “Yes” values renamed when saved.",
+      "Editing: if reloading the document after an edit fails, Margin keeps it open instead of breaking every later action; find & replace no longer fails on text blocks without a stored style; rich text styles no longer land on the wrong characters after an emoji in older browsers.",
+      "Panels and dialogs: moving a bookmark no longer collapses other bookmarks whose numbers start the same way; the Spelling panel no longer flags words with curly apostrophes after a replace; removing a header & footer or watermark no longer reports success when it failed; Print and Export as images no longer ask for “the pages to extract”.",
+      "Smaller fixes: printing or exporting images frees its memory even if a page fails or you cancel; a cancelled touch drag while cropping an image puts the frame back; clearing redaction marks shows an error if it fails; Esc in the crop tool no longer reaches the browser; pasting an image when no page is shown no longer leaks memory.",
+    ],
+  },
+  {
     version: "2.24.1",
     date: "2026-11-18",
     notes: [
@@ -397,6 +408,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.24.1";
+const VERSION = "2.24.2";
 
 export { CHANGELOG, VERSION };

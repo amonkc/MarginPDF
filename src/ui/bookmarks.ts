@@ -2,6 +2,8 @@ import { openMenu } from './ctxmenu';
 import { toast, icon, h } from './dom';
 import type { ToastHandle } from './dom';
 import type { Bookmark } from '../engine/types';
+import type { TextObjectInfo } from '../engine/pdfium';
+import type { Viewer } from './viewer';
 import type { App } from '../app';
 
 /** A bookmark's tree path as a string key, e.g. "0.2.1". */
@@ -15,7 +17,7 @@ class Bookmarks {
   el: HTMLElement;
   app: App;
   /** The viewer. */
-  v: any;
+  v: Viewer;
   tree: HTMLElement;
   empty: HTMLElement;
   items: Bookmark[] = [];
@@ -25,7 +27,7 @@ class Bookmarks {
   sel: string | null = null;
   onCount: (count: number) => void = () => {
   };
-  constructor(app: App, viewer: any) {
+  constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
     this.tree = h("div", { class: "bm-tree", role: "tree", "aria-label": "Bookmarks" });
@@ -51,7 +53,7 @@ class Bookmarks {
   }
   /** Builds the tree node for `bm` at nesting `level` (1-based), including its expanded children. */
   row(bm: Bookmark, level: number): HTMLElement {
-    const key = pathKey(bm.path), expanded = this.open.has(key), hasChildren = bm.children.length > 0, rowEl = h("div", { class: "bm-row" + (this.sel === key ? " sel" : ""), role: "treeitem", tabindex: this.sel === key || !this.sel && key === "0" ? "0" : "-1", "data-path": key, "aria-level": String(level), ...hasChildren ? { "aria-expanded": String(expanded) } : {}, title: bm.uri ? bm.uri : bm.page >= 0 ? `Page ${bm.page + 1}` : "No target", style: { paddingLeft: 6 + (level - 1) * 14 + "px" } }, h("button", { class: "bm-twist" + (hasChildren ? "" : " none"), type: "button", tabindex: "-1", "aria-hidden": "true", text: hasChildren ? expanded ? "▾" : "▸" : "", onclick: (e) => {
+    const key = pathKey(bm.path), expanded = this.open.has(key), hasChildren = bm.children.length > 0, rowEl = h("div", { class: "bm-row" + (this.sel === key ? " sel" : ""), role: "treeitem", tabindex: this.sel === key || !this.sel && key === "0" ? "0" : "-1", "data-path": key, "aria-level": String(level), ...hasChildren ? { "aria-expanded": String(expanded) } : {}, title: bm.uri ? bm.uri : bm.page >= 0 ? `Page ${bm.page + 1}` : "No target", style: { paddingLeft: 6 + (level - 1) * 14 + "px" } }, h("button", { class: "bm-twist" + (hasChildren ? "" : " none"), type: "button", tabindex: "-1", "aria-hidden": "true", text: hasChildren ? expanded ? "▾" : "▸" : "", onclick: (e: MouseEvent) => {
       e.stopPropagation();
       this.toggle(key);
     } }), h("span", { class: "bm-title", text: bm.title || "Untitled" }), h("span", { class: "bm-page", text: bm.page >= 0 ? String(bm.page + 1) : bm.uri ? "↗" : "" }));
@@ -140,7 +142,7 @@ class Bookmarks {
   /** A default title: the page's largest text (a likely heading), else "Page N". */
   suggestTitle(page: number): string {
     try {
-      const text = this.app.doc.textObjects(page).filter((t) => t.text.trim().length >= 3).reduce((best, t) => !best || t.fontSize > best.fontSize + 0.5 ? t : best, null)?.text.trim();
+      const text = this.app.doc.textObjects(page).filter((t) => t.text.trim().length >= 3).reduce<TextObjectInfo | null>((best, t) => !best || t.fontSize > best.fontSize + 0.5 ? t : best, null)?.text.trim();
       if (text) return text.length > 60 ? text.slice(0, 59) + "…" : text;
     } catch {
     }
@@ -186,8 +188,9 @@ class Bookmarks {
   }
   /** Moves `bm` under `toParent` at `toIndex`; `newKey` is where it ends up (to keep it expanded and focused). */
   async move(bm: Bookmark, toParent: number[], toIndex: number, newKey: string): Promise<void> {
-    const wasOpen = this.open.has(pathKey(bm.path));
-    this.open = new Set([...this.open].filter((key) => !key.startsWith(pathKey(bm.path))));
+    const oldKey = pathKey(bm.path), wasOpen = this.open.has(oldKey);
+    // Forget the expanded state of the bookmark and its subtree only ("1" and "1.x", not "10").
+    this.open = new Set([...this.open].filter((key) => key !== oldKey && !key.startsWith(oldKey + ".")));
     await this.edit("Move bookmark", () => this.app.doc.moveBookmark(bm.path, toParent, toIndex));
     if (wasOpen) {
       this.open.add(newKey);

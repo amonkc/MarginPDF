@@ -1,6 +1,7 @@
 import type { RGBA } from './engine/types';
 import { Growable } from './engine/growable';
 import { objectIndex, ENGINE_FULL, compactDelta, isEngineAbort } from './engine/pdfium';
+import type { Doc, Pdfium } from './engine/pdfium';
 import { DEFAULT_HEADER_FOOTER } from './ui/headerfooter';
 import type { HeaderFooterSettings } from './ui/headerfooter';
 import { DEFAULT_WATERMARK } from './ui/watermark';
@@ -16,8 +17,11 @@ const FORM_FILL_LABELS = /^(Fill field|Toggle checkbox|Choose option|Sign field)
 const EVICT_AT = 512 * 1024 * 1024;
 /** Files larger than this are saved incrementally only (a full rewrite would not fit in a tab's memory). */
 const FULL_SAVE_MAX = 600 * 1024 * 1024;
+/** Bytes of superseded file buffers (left by full rewrites) the undo history may hold before old steps are dropped. */
+const HISTORY_BUFFERS_MAX = 512 * 1024 * 1024;
 
-const loadPref = (key: string, fallback: any): any => {
+/** Reads a saved preference; the stored value is parsed JSON, so its shape is the caller's to trust. */
+const loadPref = <T>(key: string, fallback: T): T => {
   try {
     const raw = localStorage.getItem("margin." + key);
     return raw ? JSON.parse(raw) : fallback;
@@ -32,8 +36,7 @@ const savePref = (key: string, value: unknown): void => {
   }
 };
 
-/** Default tool settings; saved settings are merged over these. Colours are RGBA 0–255. */
-/** User settings, kept in localStorage ("margin.settings"). Colours are RGBA; null means none. */
+/** User settings (tool colours, sizes, author name, header/footer and watermark presets), kept in localStorage ("margin.settings"). Colours are RGBA 0–255; null means none. */
 export type Settings = {
   author: string;
   markupColor: RGBA; lineMarkupColor: RGBA;
@@ -47,12 +50,10 @@ export type Settings = {
   noteColor: RGBA;
   textColor: RGBA; textFont: string; textSize: number; textStyle: string; textAlign: string; textLh: number;
   hf: HeaderFooterSettings; wm: WatermarkSettings;
-  [k: string]: any;
 };
 
+/** Default tool settings; saved settings are merged over these. */
 const DEFAULT_SETTINGS: Settings = { author: "Me", markupColor: [246, 214, 74, 255], lineMarkupColor: [214, 69, 52, 255], inkColor: [214, 69, 52, 255], inkWidth: 2, shapeColor: [37, 99, 235, 255], shapeWidth: 1.5, shapeFill: null, shapeOpacity: 1, lineColor: [214, 69, 52, 255], lineWidth: 2, lineEnds: "arrow", ftSize: 12, ftColor: [24, 26, 33, 255], ftFill: [255, 255, 255, 255], ftBorder: [214, 69, 52, 255], ftCallout: false, stamp: "approved", stampCustom: "", stampColor: [37, 99, 235, 255], stampDated: true, redactMode: "text", formKind: "text", formLastGroup: "", redactFill: [0, 0, 0, 255], noteColor: [246, 214, 74, 255], textColor: [24, 26, 33, 255], textFont: "sarabun", textSize: 14, textStyle: "", textAlign: "left", textLh: 1.5, hf: DEFAULT_HEADER_FOOTER, wm: DEFAULT_WATERMARK };
-
-/** User settings (tool colours, sizes, author name, header/footer and watermark presets). */
 
 /** What an edit changed: the pages to re-render (or all), and whether pages were added, removed or reordered. */
 export type Change = { pages: number[] | 'all'; structure?: boolean };
@@ -72,8 +73,9 @@ export type AnnotRef = { page: number; index: number; [k: string]: unknown };
  * commits it as an incremental update appended to the file.
  */
 class App {
-  lib: any;
-  doc: any;
+  lib: Pdfium;
+  /** The open document (set by {@link App.open} before anything else uses it). */
+  doc!: Doc;
   fileName = "document.pdf";
   dirty = false;
   tool = "select";
@@ -84,7 +86,7 @@ class App {
   /** Length of the current document within `file`. */
   cur = 0;
   /** Object offsets of the current file (lazily built), used to write compact incremental updates. */
-  index: Map<any, any> | null = null;
+  index: Map<number, number> | null = null;
   password = "";
   ownerPassword = "";
   /** Next commit must rewrite the whole file (e.g. after changing encryption). */
@@ -96,14 +98,14 @@ class App {
   mustRewrite = false;
   listeners: ((change: Change) => void)[] = [];
   toolListeners: ((tool: string) => void)[] = [];
-  settings: Settings = { ...DEFAULT_SETTINGS, ...loadPref("settings", {}) };
+  settings: Settings = { ...DEFAULT_SETTINGS, ...loadPref<Partial<Settings>>("settings", {}) };
   saveSettings(): void {
     savePref("settings", this.settings);
   }
   selectedAnnot: AnnotRef | null = null;
   selectedPages: Set<number> = new Set();
   currentPage = 0;
-  constructor(lib: any) {
+  constructor(lib: Pdfium) {
     this.lib = lib;
   }
   /** Opens `bytes` as the current document, discarding history and selection. */
@@ -157,7 +159,7 @@ class App {
     }
     const current = this.file.view(this.cur);
     this.index ??= objectIndex(current);
-    const newOffsets = new Map();
+    const newOffsets = new Map<number, number>();
     let update = compactDelta(current, delta, this.index, newOffsets);
     if (this.pendingPatch) {
       const patch = this.pendingPatch;
@@ -257,7 +259,7 @@ class App {
       for (const buf of buffers) total += buf.len;
       return total;
     };
-    while (this.undoStack.length && this.undoStack[0].file !== this.file && otherBuffersSize() > 512 * 1024 * 1024) this.undoStack.shift();
+    while (this.undoStack.length && this.undoStack[0].file !== this.file && otherBuffersSize() > HISTORY_BUFFERS_MAX) this.undoStack.shift();
   }
   /**
    * Runs one undoable edit: checks permissions, runs `run` against the document, commits it to the file and

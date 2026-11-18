@@ -1,4 +1,6 @@
+import { DEFAULT_FT_BORDER_WIDTH } from './types';
 import { init as ji } from '@embedpdf/pdfium';
+import type { WrappedPdfiumModule } from '@embedpdf/pdfium';
 import type {
   AnnotInfo,
   AnnotStyle,
@@ -70,8 +72,41 @@ function nameRadioStates(bytes: Uint8Array): Uint8Array {
     const on = body.match(/\/MarginOn\s*\(((?:[^()\\]|\\.)*)\)/);
     if (!on) continue;
     const state = on[1].replace(/\\(.)/g, "$1").trim().replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 24) || "On";
-    const patched = body.replace(on[0], "").replace(/\/Yes\b/g, "/" + state);
+    const patched = renameOnState(body.replace(on[0], ""), state);
     if (!(patched.length > body.length)) put(match.index + match[1].length, patched + " ".repeat(body.length - patched.length));
+  }
+  return out;
+}
+
+/** "/Yes" as a whole PDF name (followed by a delimiter, whitespace or the end). */
+const YES_NAME = /\/Yes(?=[\s\/<>\[\]()%{}]|$)/g;
+
+/**
+ * Rename a widget's "on" appearance state from /Yes to /`state` in an object body: the /AS value, the
+ * state keys inside its /AP dictionary (/N, /D, /R sub-dictionaries) and, for a field merged with its
+ * widget, a /V value. Nothing else in the body (e.g. a /Yes in /MK or /Opt) is touched.
+ */
+function renameOnState(body: string, state: string): string {
+  let out = body.replace(/(\/(?:AS|V)\s*)\/Yes(?=[\s\/<>\[\]()%{}]|$)/g, "$1/" + state);
+  const ap = /\/AP\s*<</.exec(out);
+  if (ap) {
+    // Find the end of the /AP dictionary by counting << >> (no strings in appearance dictionaries).
+    const start = ap.index + ap[0].length - 2;
+    let depth = 0, end = -1;
+    for (let k = start; k < out.length - 1; k++) {
+      if (out[k] === "<" && out[k + 1] === "<") {
+        depth++;
+        k++;
+      } else if (out[k] === ">" && out[k + 1] === ">") {
+        depth--;
+        k++;
+        if (!depth) {
+          end = k + 1;
+          break;
+        }
+      }
+    }
+    if (end > 0) out = out.slice(0, start) + out.slice(start, end).replace(YES_NAME, "/" + state) + out.slice(end);
   }
   return out;
 }
@@ -209,6 +244,26 @@ ${baseLen + size}\r
   }
 }
 
+/**
+ * Whether heap[from, from + len) equals ref[at, at + len). Compares 32-bit words when both ranges share
+ * the same alignment (the usual case), so checking a whole re-emitted file stays cheap next to writing it.
+ */
+function sameBytes(heap: Uint8Array, from: number, ref: Uint8Array, at: number, len: number): boolean {
+  let k = 0;
+  const heapAt = heap.byteOffset + from, refAt = ref.byteOffset + at;
+  if ((heapAt & 3) === (refAt & 3)) {
+    for (; k < len && (heapAt + k) & 3; k++) if (heap[from + k] !== ref[at + k]) return false;
+    const words = (len - k) >> 2;
+    if (words) {
+      const heapWords = new Uint32Array(heap.buffer, heapAt + k, words), refWords = new Uint32Array(ref.buffer, refAt + k, words);
+      for (let j = 0; j < words; j++) if (heapWords[j] !== refWords[j]) return false;
+      k += words * 4;
+    }
+  }
+  for (; k < len; k++) if (heap[from + k] !== ref[at + k]) return false;
+  return true;
+}
+
 /** Blank out (with spaces) every "/Parent N G R" that points at an object the file doesn't define. */
 function dropDanglingParents(bytes: Uint8Array): Uint8Array {
   const text = new TextDecoder("latin1").decode(bytes);
@@ -223,22 +278,44 @@ function dropDanglingParents(bytes: Uint8Array): Uint8Array {
 // The PDFium library wrapper
 // ---------------------------------------------------------------------------------------------
 
+/** The cwrapped PDFium API as typed by @embedpdf/pdfium (BOOL-returning C functions declared "number" return numbers). */
+type PdfiumApi = WrappedPdfiumModule;
+/** Heap value types Margin reads and writes. */
+type HeapType = "i32" | "float" | "double";
+/**
+ * The emscripten module behind the API: the members Margin uses. @embedpdf/pdfium types these via
+ * `typeof addFunction` etc. from @types/emscripten, which isn't installed here (so they would be `any`, and
+ * HEAPU8 would be missing); this spells out the runtime signatures instead.
+ */
+interface PdfiumRuntime {
+  HEAPU8: Uint8Array;
+  wasmExports: { malloc(size: number): number; free(ptr: number): void };
+  /** Add a JS function to the wasm table (signature like "iiii"); returns its table index. */
+  addFunction(fn: (...args: number[]) => number, signature: string): number;
+  removeFunction(index: number): void;
+  getValue(ptr: number, type: HeapType): number;
+  setValue(ptr: number, value: number, type: HeapType): void;
+  UTF16ToString(ptr: number): string;
+  UTF8ToString(ptr: number): string;
+  stringToUTF16(s: string, ptr: number, maxBytes: number): number;
+}
+
 /** Bytes handed to PDFium through a custom FPDF_FILEACCESS: the file, the struct and its read callback. */
 export type PdfSource = { bytes: Uint8Array; fa: number; cb: number };
 
 /** The loaded PDFium wasm module plus wasm-heap helpers. */
 class Pdfium {
   /** The cwrapped PDFium API. */
-  P: any;
+  P: PdfiumApi;
   /** The emscripten module (heap, malloc, addFunction …). */
-  M: any;
-  constructor(api: any) {
+  M: PdfiumRuntime;
+  constructor(api: PdfiumApi) {
     this.P = api;
-    this.M = api.pdfium;
+    this.M = api.pdfium as unknown as PdfiumRuntime;
     api.PDFiumExt_Init();
   }
   static async load(wasmBinary: ArrayBuffer | Uint8Array): Promise<Pdfium> {
-    const api = await ji({ wasmBinary } as any);
+    const api = await ji({ wasmBinary } as Parameters<typeof ji>[0]);
     return new Pdfium(api);
   }
   /** malloc at least one byte. */
@@ -315,7 +392,9 @@ class Pdfium {
       this.dropSource(src);
       throw new PdfError(code);
     }
-    return new Doc(this, handle, src);
+    const doc = new Doc(this, handle, src);
+    doc.passwords = { password, ownerPassword: "" };
+    return doc;
   }
   /** Expose `bytes` to PDFium through an FPDF_FILEACCESS whose callback copies the requested range. */
   source(bytes: Uint8Array): PdfSource {
@@ -337,7 +416,7 @@ class Pdfium {
 }
 
 /** Whether an error is the wasm engine aborting / running out of memory (the module is then unusable). */
-const isEngineAbort = (err: any): boolean => /Aborted|out of memory|Cannot enlarge memory/i.test(String(err?.message ?? err));
+const isEngineAbort = (err: unknown): boolean => /Aborted|out of memory|Cannot enlarge memory/i.test(String((err as { message?: unknown } | null | undefined)?.message ?? err));
 const ENGINE_FULL = "The PDF engine ran out of memory: this file is too large to edit in a browser tab. Reload Margin to keep working.";
 
 /** A PDFium load error (FPDF_ERR_* code) with a user-facing message. */
@@ -368,8 +447,8 @@ export type TextObjectInfo = {
   bounds: Rect;
   fontSize: number;
   /** fill colour as 0–255 r, g, b, a */
-  color: number[];
-  matrix: number[];
+  color: RGBA;
+  matrix: Matrix;
   fontName: string;
   /** text render mode 3 (invisible, e.g. OCR layers) */
   invisible: boolean;
@@ -425,7 +504,8 @@ export type TextMark = {
   lh: number;
   st: string;
   al: string;
-  bm: number[] | null;
+  /** block matrix (always 6 finite numbers) */
+  bm: Matrix | null;
   rt: string;
 };
 /** A rendered image annotation object: placement and RGBA pixels. */
@@ -438,7 +518,7 @@ export type RenderedImage = { m: Matrix; rgba: Uint8ClampedArray; w: number; h: 
 class Doc {
   lib: Pdfium;
   /** The cwrapped PDFium API. */
-  P: any;
+  P: PdfiumApi;
   /** FPDF_DOCUMENT handle (0 once closed). */
   h: number;
   src: PdfSource | null;
@@ -449,8 +529,10 @@ class Doc {
   imported = false;
   /** Page indices loaded since the last swap. */
   loaded = new Set<number>();
-  /** How many pages are currently loaded through withPage/addLink/createField. */
+  /** How many pages are currently loaded through withPage/createField. */
   depth = 0;
+  /** The passwords the current bytes were opened with (swap() reopens them if new bytes won't open). */
+  passwords = { password: "", ownerPassword: "" };
   constructor(lib: Pdfium, handle: number, src: PdfSource | null) {
     this.lib = lib;
     this.P = lib.P;
@@ -474,18 +556,33 @@ class Doc {
   }
   /**
    * Close and reopen this Doc on new bytes (after a save), trying `fallback` if `bytes` won't open.
-   * `ownerPassword`, if given, re-unlocks owner permissions.
+   * `ownerPassword`, if given, re-unlocks owner permissions. If neither opens, the bytes this Doc had
+   * before are reopened (so it stays usable, as last saved) and a PdfError is thrown; if even that
+   * fails, an Error saying so is thrown and the Doc stays closed.
    */
   swap(bytes: Uint8Array, password = "", fallback?: Uint8Array, ownerPassword = ""): void {
+    const previous = this.src?.bytes, previousPasswords = this.passwords;
     this.close();
-    const lib = this.lib, P = this.P, tryOpen = (data: Uint8Array) => {
-      const src = lib.source(data), handle = P.FPDF_LoadCustomDocument(src.fa, password);
+    const lib = this.lib, P = this.P, tryOpen = (data: Uint8Array, pw: string) => {
+      const src = lib.source(data), handle = P.FPDF_LoadCustomDocument(src.fa, pw);
       if (!handle) lib.dropSource(src);
       return handle ? { h: handle, src } : null;
-    }, opened = tryOpen(bytes) || (fallback ? tryOpen(fallback) : null);
-    if (!opened) throw new PdfError(P.FPDF_GetLastError());
-    this.h = opened.h;
-    this.src = opened.src;
+    }, opened = tryOpen(bytes, password) || (fallback ? tryOpen(fallback, password) : null);
+    if (opened) {
+      this.attach(opened.h, opened.src, password, ownerPassword);
+      return;
+    }
+    const error = new PdfError(P.FPDF_GetLastError()), restored = previous ? tryOpen(previous, previousPasswords.password) : null;
+    if (!restored) throw new Error(`The document could not be reloaded (${error.message}). Reload Margin to keep working.`);
+    this.attach(restored.h, restored.src, previousPasswords.password, previousPasswords.ownerPassword);
+    throw error;
+  }
+  /** Take over a freshly opened document handle: reset per-load state and set up the form environment. */
+  private attach(handle: number, src: PdfSource, password: string, ownerPassword: string): void {
+    const P = this.P;
+    this.h = handle;
+    this.src = src;
+    this.passwords = { password, ownerPassword };
     this.imported = false;
     this.loaded.clear();
     if (ownerPassword) P.EPDF_UnlockOwnerPermissions(this.h, ownerPassword);
@@ -527,7 +624,7 @@ class Doc {
   pageBoxes(index: number): { media: Rect; crop: Rect } {
     const P = this.P, lib = this.lib;
     return this.withPage(index, (page) => lib.tmp((alloc) => {
-      const buf = alloc(16), getBox = (fnName: string): Rect | null => P[fnName](page, buf, buf + 4, buf + 8, buf + 12) ? (([x0, y0, x1, y1]) => ({ l: Math.min(x0, x1), b: Math.min(y0, y1), r: Math.max(x0, x1), t: Math.max(y0, y1) }))(lib.readFloats(buf, 4)) : null, media = getBox("FPDFPage_GetMediaBox") || { l: 0, b: 0, r: P.FPDF_GetPageWidthF(page), t: P.FPDF_GetPageHeightF(page) }, cropBox = getBox("FPDFPage_GetCropBox"), crop = cropBox ? { l: Math.max(cropBox.l, media.l), b: Math.max(cropBox.b, media.b), r: Math.min(cropBox.r, media.r), t: Math.min(cropBox.t, media.t) } : media;
+      const buf = alloc(16), getBox = (fnName: "FPDFPage_GetMediaBox" | "FPDFPage_GetCropBox"): Rect | null => P[fnName](page, buf, buf + 4, buf + 8, buf + 12) ? (([x0, y0, x1, y1]) => ({ l: Math.min(x0, x1), b: Math.min(y0, y1), r: Math.max(x0, x1), t: Math.max(y0, y1) }))(lib.readFloats(buf, 4)) : null, media = getBox("FPDFPage_GetMediaBox") || { l: 0, b: 0, r: P.FPDF_GetPageWidthF(page), t: P.FPDF_GetPageHeightF(page) }, cropBox = getBox("FPDFPage_GetCropBox"), crop = cropBox ? { l: Math.max(cropBox.l, media.l), b: Math.max(cropBox.b, media.b), r: Math.min(cropBox.r, media.r), t: Math.min(cropBox.t, media.t) } : media;
       return { media, crop };
     }));
   }
@@ -572,8 +669,8 @@ class Doc {
   }
   /**
    * FPDF_SaveAsCopy with `flags`. With `skip` > 0 (incremental save) PDFium first re-emits the original
-   * file: the first `skip` bytes are checked against the source (spot checks of up to 32 bytes per
-   * write) and dropped, so only the appended update is returned. Null when saving fails or the prefix
+   * file: the first `skip` bytes are checked against the source in full and dropped, so only the
+   * appended update is returned. Null when saving fails or the prefix
    * doesn't match the source.
    */
   write(flags: number, skip: number): Uint8Array | null {
@@ -585,13 +682,7 @@ class Doc {
       data >>>= 0;
       len >>>= 0;
       const heap = mod.HEAPU8;
-      if (seen < skip && orig) {
-        const n = Math.min(len, skip - seen, 32);
-        for (let k = 0; k < n; k++) if (heap[data + k] !== orig[seen + k]) {
-          prefixOk = false;
-          break;
-        }
-      }
+      if (prefixOk && seen < skip && orig && !sameBytes(heap, data, orig, seen, Math.min(len, skip - seen))) prefixOk = false;
       const from = Math.max(seen, skip);
       if (seen + len > from) {
         const part = heap.subarray(data + (from - seen), data + len);
@@ -860,7 +951,9 @@ class Doc {
     return { encrypted: revision > 0, revision, perms: this.P.FPDF_GetDocPermissions(this.h) >>> 0 };
   }
   unlockOwner(password: string): boolean {
-    return !!this.P.EPDF_UnlockOwnerPermissions(this.h, password);
+    const ok = !!this.P.EPDF_UnlockOwnerPermissions(this.h, password);
+    if (ok) this.passwords = { ...this.passwords, ownerPassword: password };
+    return ok;
   }
   setProtection(userPassword: string, ownerPassword: string, perms: number): boolean {
     return !!this.P.EPDF_SetEncryption(this.h, userPassword, ownerPassword, perms | 0);
@@ -928,7 +1021,7 @@ class Doc {
             const nameBuf = alloc(256);
             fontName = P.FPDFFont_GetBaseFontName(font, nameBuf, 256) ? lib.M.UTF8ToString(nameBuf) : "";
           }
-          return { bounds: { l, b, r, t }, fontSize: lib.readFloats(sizeBuf, 1)[0], color: lib.readU32(colorBuf, 4), matrix: lib.readFloats(matrixBuf, 6), fontName };
+          return { bounds: { l, b, r, t }, fontSize: lib.readFloats(sizeBuf, 1)[0], color: lib.readU32(colorBuf, 4) as RGBA, matrix: lib.readFloats(matrixBuf, 6) as Matrix, fontName };
         }), mark = readTextMark(lib, obj, "MarginText"), invisible = P.FPDFTextObj_GetTextRenderMode(obj) === 3;
         if (!(invisible && !mark)) out.push({ index: k, text, ...props, invisible, margin: mark || undefined });
       }
@@ -1269,7 +1362,8 @@ class Doc {
         else P.EPDFAnnot_ClearColor(annot, 0);
         if (data.style.fill) P.EPDFAnnot_SetColor(annot, 1, data.style.fill[0], data.style.fill[1], data.style.fill[2]);
         else P.EPDFAnnot_ClearColor(annot, 1);
-        P.FPDFAnnot_SetBorder(annot, 0, 0, data.style.border ? data.style.borderWidth : 0);
+        // Same width renderFreeText draws (`ap`), so viewers that redraw from /Border agree with it.
+        P.FPDFAnnot_SetBorder(annot, 0, 0, data.style.border ? data.style.borderWidth ?? DEFAULT_FT_BORDER_WIDTH : 0);
         setAnnotRect(lib, annot, rect);
         P.EPDFAnnot_SetRectangleDifferences(annot, data.box.l - rect.l, rect.t - data.box.t, rect.r - data.box.r, data.box.b - rect.b);
         if (data.tip) {
@@ -1307,7 +1401,7 @@ class Doc {
         } catch {
         }
         const box = annotRect(lib, annot), da = str("DA"), size = +(da.match(/([\d.]+)\s+Tf/)?.[1] || 12) || 12, rgbMatch = da.match(/([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg/), color: RGBA = rgbMatch ? [Math.round(+rgbMatch[1] * 255), Math.round(+rgbMatch[2] * 255), Math.round(+rgbMatch[3] * 255), 255] : [0, 0, 0, 255];
-        return { box, text: str("Contents"), style: { fontKey: "sarabun", size, color, fill: null, border: null, borderWidth: 1 } };
+        return { box, text: str("Contents"), style: { fontKey: "sarabun", size, color, fill: null, border: null, borderWidth: DEFAULT_FT_BORDER_WIDTH } };
       } finally {
         P.FPDFPage_CloseAnnot(annot);
       }
@@ -1472,7 +1566,7 @@ class Doc {
       if (fill) for (const r of rects) {
         const box = P.FPDFPageObj_CreateNewRect(r.l, r.b, r.r - r.l, r.t - r.b);
         P.FPDFPageObj_SetFillColor(box, fill[0], fill[1], fill[2], 255);
-        P.FPDFPath_SetDrawMode(box, 1, 0);
+        P.FPDFPath_SetDrawMode(box, 1, false);
         P.FPDFPage_InsertObject(page, box);
       }
       P.FPDFPage_GenerateContent(page);
@@ -1513,32 +1607,37 @@ class Doc {
       return out;
     });
   }
-  /** Add a link over `rect` to a URI or to the top of a page (which is loaded meanwhile). */
+  /**
+   * Add a link over `rect` to a URI or to the top of a page. A target page other than `index` is loaded
+   * through withPage (form hooks, `loaded`/`depth` bookkeeping) for as long as the link is built.
+   */
   addLink(index: number, rect: Rect, target: LinkTarget): void {
-    const P = this.P, lib = this.lib, destPage = "page" in target ? P.FPDF_LoadPage(this.h, target.page) : 0;
-    this.depth++;
-    try {
-      this.withPage(index, (page) => {
-        const annot = P.FPDFPage_CreateAnnot(page, ANNOT.LINK);
-        if (!annot) throw new Error("Could not create the link");
-        try {
-          setAnnotRect(lib, annot, rect);
-          P.FPDFAnnot_SetBorder(annot, 0, 0, 0);
-          let action = 0;
-          if ("uri" in target) action = P.EPDFAction_CreateURI(this.h, target.uri);
-          else {
-            const dest = P.EPDFDest_CreateXYZ(destPage, false, 0, true, P.FPDF_GetPageHeightF(destPage), false, 0);
-            action = dest ? P.EPDFAction_CreateGoTo(this.h, dest) : 0;
-          }
-          if (!action || !P.EPDFAnnot_SetAction(annot, action)) throw new Error("Could not set the link target");
-        } finally {
-          P.FPDFPage_CloseAnnot(annot);
+    if ("page" in target && target.page !== index) this.withPage(target.page, (destPage) => this.insertLink(index, rect, target, destPage));
+    else this.insertLink(index, rect, target, 0);
+  }
+  /** addLink's work on page `index`; `destPage` is the loaded target page (0: the target is `index` itself or a URI). */
+  private insertLink(index: number, rect: Rect, target: LinkTarget, destPage: number): void {
+    const P = this.P, lib = this.lib;
+    this.withPage(index, (page) => {
+      const annot = P.FPDFPage_CreateAnnot(page, ANNOT.LINK);
+      if (!annot) throw new Error("Could not create the link");
+      try {
+        setAnnotRect(lib, annot, rect);
+        P.FPDFAnnot_SetBorder(annot, 0, 0, 0);
+        let action = 0;
+        if ("uri" in target) {
+          action = P.EPDFAction_CreateURI(this.h, target.uri);
+          if (!action) throw new Error("Could not set the link’s web address");
+        } else {
+          const toPage = destPage || page, dest = P.EPDFDest_CreateXYZ(toPage, false, 0, true, P.FPDF_GetPageHeightF(toPage), false, 0);
+          action = dest ? P.EPDFAction_CreateGoTo(this.h, dest) : 0;
+          if (!action) throw new Error(`Could not point the link at page ${target.page + 1}`);
         }
-      });
-    } finally {
-      this.depth--;
-      if (destPage) P.FPDF_ClosePage(destPage);
-    }
+        if (!P.EPDFAnnot_SetAction(annot, action)) throw new Error("Could not attach the target to the link");
+      } finally {
+        P.FPDFPage_CloseAnnot(annot);
+      }
+    });
   }
   setLinePoints(index: number, annotIndex: number, a: Pt, b: Pt): void {
     this.withPage(index, (page) => {
@@ -1774,21 +1873,27 @@ class Doc {
     });
   }
   // ---- Annotation editing ----------------------------------------------------------------------
-  /** Delete an annotation together with its replies (annotations /IRT-linked to it, transitively). */
+  /**
+   * Delete an annotation together with its replies (annotations /IRT-linked to it, transitively) and the
+   * popups of all of them (their /Popup, or popups whose /Parent is one of them).
+   */
   deleteAnnot(index: number, annotIndex: number): void {
     const P = this.P;
     this.withPage(index, (page) => {
+      /** Index of the annotation `annot` links to under `key`, or -1. */
+      const linkedIndex = (annot: number, key: string): number => {
+        const linked = P.FPDFAnnot_GetLinkedAnnot(annot, key);
+        if (!linked) return -1;
+        const linkedAt = P.FPDFPage_GetAnnotIndex(page, linked);
+        P.FPDFPage_CloseAnnot(linked);
+        return linkedAt;
+      };
       const doomed = new Set([annotIndex]);
       for (let grew = true; grew; ) {
         grew = false;
         for (let k = 0; k < P.FPDFPage_GetAnnotCount(page); k++) {
           if (doomed.has(k)) continue;
-          const annot = P.FPDFPage_GetAnnot(page, k), irt = P.FPDFAnnot_GetLinkedAnnot(annot, "IRT");
-          let irtIndex = -1;
-          if (irt) {
-            irtIndex = P.FPDFPage_GetAnnotIndex(page, irt);
-            P.FPDFPage_CloseAnnot(irt);
-          }
+          const annot = P.FPDFPage_GetAnnot(page, k), irtIndex = linkedIndex(annot, "IRT");
           P.FPDFPage_CloseAnnot(annot);
           if (irtIndex >= 0 && doomed.has(irtIndex)) {
             doomed.add(k);
@@ -1796,6 +1901,17 @@ class Doc {
           }
         }
       }
+      const popups = new Set<number>();
+      for (let k = 0; k < P.FPDFPage_GetAnnotCount(page); k++) {
+        const annot = P.FPDFPage_GetAnnot(page, k);
+        if (!annot) continue;
+        if (doomed.has(k)) {
+          const popup = linkedIndex(annot, "Popup");
+          if (popup >= 0) popups.add(popup);
+        } else if (P.FPDFAnnot_GetSubtype(annot) === ANNOT.POPUP && doomed.has(linkedIndex(annot, "Parent"))) popups.add(k);
+        P.FPDFPage_CloseAnnot(annot);
+      }
+      for (const k of popups) doomed.add(k);
       for (const k of [...doomed].sort((a, b) => b - a)) P.FPDFPage_RemoveAnnot(page, k);
     });
   }
@@ -1964,7 +2080,7 @@ class Doc {
         if (!annot) return null;
         try {
           const subtype = P.FPDFAnnot_GetSubtype(annot);
-          if (subtype === ANNOT.FREETEXT || ![ANNOT.SQUARE, ANNOT.CIRCLE, ANNOT.LINE, ANNOT.INK, ANNOT.TEXT, ANNOT.STAMP].includes(subtype)) return null;
+          if (subtype === ANNOT.FREETEXT || !([ANNOT.SQUARE, ANNOT.CIRCLE, ANNOT.LINE, ANNOT.INK, ANNOT.TEXT, ANNOT.STAMP] as number[]).includes(subtype)) return null;
           const str = (key: string) => lib.readW((buf, len) => P.FPDFAnnot_GetStringValue(annot, key, buf, len)), color = lib.tmp((alloc): RGBA | null => {
             const buf = alloc(16);
             return P.EPDFAnnot_GetColor(annot, 0, buf, buf + 4, buf + 8) ? [...lib.readU32(buf, 3), 255] as RGBA : P.FPDFAnnot_GetColor(annot, 0, buf, buf + 4, buf + 8, buf + 12) ? lib.readU32(buf, 4) as RGBA : null;
@@ -2152,8 +2268,8 @@ Q`);
     P.FPDFAnnot_SetAP(annot, 0, apPtr);
     lib.free(apPtr);
   }
-  /** Whether Margin drew this annotation's appearance itself (/MarginAP or /MarginFT); truthy PDFium bool. */
-  isDrawn(annot: number): number {
+  /** Whether Margin drew this annotation's appearance itself (/MarginAP or /MarginFT). */
+  isDrawn(annot: number): boolean {
     return this.P.FPDFAnnot_HasKey(annot, "MarginAP") || this.P.FPDFAnnot_HasKey(annot, "MarginFT");
   }
   /** Move an annotation by (dx, dy). Text markups and redaction marks can't move (false). */
@@ -2163,7 +2279,7 @@ Q`);
       const annot = P.FPDFPage_GetAnnot(page, annotIndex);
       try {
         const subtype = P.FPDFAnnot_GetSubtype(annot);
-        if ([ANNOT.HIGHLIGHT, ANNOT.UNDERLINE, ANNOT.STRIKEOUT, ANNOT.SQUIGGLY, ANNOT.REDACT].includes(subtype)) return false;
+        if (([ANNOT.HIGHLIGHT, ANNOT.UNDERLINE, ANNOT.STRIKEOUT, ANNOT.SQUIGGLY, ANNOT.REDACT] as number[]).includes(subtype)) return false;
         if (subtype === ANNOT.LINE) {
           const pts = this.readLine(annot);
           if (!pts) return false;
@@ -2230,7 +2346,7 @@ Q`);
       const annot = P.FPDFPage_GetAnnot(page, annotIndex);
       try {
         const subtype = P.FPDFAnnot_GetSubtype(annot);
-        if (subtype === ANNOT.FREETEXT || subtype === ANNOT.TEXT || subtype === ANNOT.REDACT || [ANNOT.HIGHLIGHT, ANNOT.UNDERLINE, ANNOT.STRIKEOUT, ANNOT.SQUIGGLY].includes(subtype)) return false;
+        if (subtype === ANNOT.FREETEXT || subtype === ANNOT.TEXT || subtype === ANNOT.REDACT || ([ANNOT.HIGHLIGHT, ANNOT.UNDERLINE, ANNOT.STRIKEOUT, ANNOT.SQUIGGLY] as number[]).includes(subtype)) return false;
         const from = annotRect(lib, annot), sx = (rect.r - rect.l) / Math.max(1e-6, from.r - from.l), sy = (rect.t - rect.b) / Math.max(1e-6, from.t - from.b), map = (x: number, y: number) => [rect.l + (x - from.l) * sx, rect.b + (y - from.b) * sy];
         if (this.isDrawn(annot)) {
           this.reframeAP(annot, from, rect);
@@ -2672,7 +2788,7 @@ function readTextMark(lib: Pdfium, obj: number, name: string): TextMark | null {
           lib.free(buf);
         }
       }
-      return { id: param("id"), font: param("font"), ln: +param("ln") || 0, size: +param("size") || 0, color: param("color"), lh: +param("lh") || 1.5, st: param("st"), al: param("al") || "left", bm: bm.length === 6 && bm.every(Number.isFinite) ? bm : null, rt };
+      return { id: param("id"), font: param("font"), ln: +param("ln") || 0, size: +param("size") || 0, color: param("color"), lh: +param("lh") || 1.5, st: param("st"), al: param("al") || "left", bm: bm.length === 6 && bm.every(Number.isFinite) ? bm as Matrix : null, rt };
     });
     if (params) return params;
   }

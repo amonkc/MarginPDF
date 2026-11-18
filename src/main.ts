@@ -47,7 +47,12 @@ import { TextBoxes } from "./ui/textbox";
 import { pageActions, Thumbs } from "./ui/thumbs";
 import { Viewer } from "./ui/viewer";
 import { DEFAULT_WATERMARK, watermarkDialog } from "./ui/watermark";
-import type { Pt, RGBA, Rect } from "./engine/types";
+import type { AnnotInfo, AnnotStyle, Bookmark, FreeTextStyle, LineEnd, Pt, RGBA, Rect } from "./engine/types";
+import type { Doc, LinkInfo, PageRects } from "./engine/pdfium";
+import type { ArrangeItem } from "./ui/arrange";
+import type { CopiedField } from "./ui/extract";
+import type { ToolInfo } from "./ui/interact";
+import type { ObjClip } from "./ui/pageclip";
 import type { MenuItem } from "./ui/ctxmenu";
 import type { ToastHandle } from "./ui/dom";
 
@@ -61,24 +66,46 @@ interface SearchHit {
 }
 
 
+/** An edge or centre line that Move & resize can align objects on. */
+type AlignEdge = Parameters<Arrange["align"]>[0];
+
+/** A bold/italic/underline/strike text style flag. */
+type StyleFlag = "bold" | "italic" | "underline" | "strike";
+
+/** The text-box style fields the ribbon edits (named as in the app settings). */
+type FreeTextRibbonStyle = {
+  ftSize: number;
+  ftColor: RGBA;
+  ftFill: RGBA | null;
+  ftBorder: RGBA | null;
+  textFont: string;
+};
+
 /** A pending touch long-press that will open a context menu if the finger stays put. */
 interface LongPress {
   t: number;
   x: number;
   y: number;
-  el: any;
+  el: HTMLElement;
 }
 
-let downloadsPromise: Promise<any> | null = null;
+/** The part of the host's "downloads" capability Margin uses. */
+interface Downloads {
+  save(file: { filename: string; data: Blob }): Promise<unknown>;
+}
+/** The claude.ai host API on `window` (absent outside the host). */
+type HostWindow = Window & { claude?: { use?: (capability: string) => unknown } };
+
+let downloadsPromise: Promise<Downloads | null> | null = null;
 
 /**
  * The claude.ai host's "downloads" capability, used to save files from inside the artifact frame.
  * Resolves to null outside the host (or if the capability can't be loaded); the lookup is cached.
  */
-function getDownloads(): Promise<any> {
-  const claude = (window as any).claude;
+function getDownloads(): Promise<Downloads | null> {
+  const claude = (window as HostWindow).claude;
   return claude?.use
-    ? (downloadsPromise ??= Promise.resolve(claude.use("downloads")).catch(() => null))
+    ? (downloadsPromise ??= Promise.resolve(claude.use("downloads") as Downloads | null).catch(() => null))
     : Promise.resolve(null);
 }
 /** Boots the PDF engine and HarfBuzz, builds the whole UI and wires every control, then opens the welcome PDF. */
@@ -91,14 +118,14 @@ async function main(): Promise<void> {
   $("#boot-version").textContent = "v" + VERSION;
   document.documentElement.dataset.version = VERSION;
   const fetchAsset = loadAsset;
-  let pdfium: any;
+  let pdfium: Pdfium;
   try {
     bootStatus.textContent = "Starting the PDF engine…";
     const [pdfiumWasm, harfbuzzWasm] = await Promise.all([fetchAsset("pdfium.wasm"), fetchAsset("harfbuzz.wasm")]);
     pdfium = await Pdfium.load(pdfiumWasm);
     await initShaper(harfbuzzWasm);
-  } catch (err: any) {
-    bootStatus.textContent = `The PDF engine couldn't start in this browser: ${err?.message || err}. Try a current version of Chrome, Edge, Safari or Firefox.`;
+  } catch (err) {
+    bootStatus.textContent = `The PDF engine couldn't start in this browser: ${(err as Error | null)?.message || err}. Try a current version of Chrome, Edge, Safari or Firefox.`;
     $("#boot").classList.add("failed");
     return;
   }
@@ -124,7 +151,8 @@ async function main(): Promise<void> {
     app.selectedPages.size > 1 ? [...app.selectedPages].sort((a, b) => a - b) : null;
   const thumbs = new Thumbs($("#thumbs"), app);
   const commentsPanel = new CommentsPanel($("#comments"), app);
-  (window as any).__margin = { app, viewer, ix: interact, arrange, Growable: Growable };
+  // debugging/test hook: the main objects, reachable from the console and the e2e tests
+  (window as unknown as { __margin: unknown }).__margin = { app, viewer, ix: interact, arrange, Growable: Growable };
   const bookmarks = new Bookmarks(app, viewer);
   const pagesPane = h(
     "div",
@@ -426,8 +454,14 @@ async function main(): Promise<void> {
       "Text color",
     );
     const style = editor ? editor.style : parseStyleCode(app.settings.textStyle);
-    const keepFocus = (event) => event.preventDefault();
-    const styleButton = (key, label, text, cls, shortcut) =>
+    const keepFocus = (event: MouseEvent) => event.preventDefault();
+    const styleButton = (
+      key: StyleFlag,
+      label: string,
+      text: string,
+      cls: string,
+      shortcut: string,
+    ) =>
       h("button", {
         class: "fmt " + cls + (style[key] ? " on" : ""),
         type: "button",
@@ -453,7 +487,7 @@ async function main(): Promise<void> {
     ];
     if (!editor || editor.kind !== "object") {
       const align = editor ? editor.align : app.settings.textAlign;
-      const alignButton = (value, label, iconName) =>
+      const alignButton = (value: string, label: string, iconName: string) =>
         h(
           "button",
           {
@@ -469,7 +503,7 @@ async function main(): Promise<void> {
         );
       if (editor) {
         const list = editor.list || null;
-        const listButton = (kind, label, iconName) =>
+        const listButton = (kind: "b" | "n", label: string, iconName: string) =>
           h(
             "button",
             {
@@ -530,7 +564,10 @@ async function main(): Promise<void> {
     return items;
   }
   /** Ribbon controls for a text box: font, size, text colour, fill and border; `change` gets the edited fields. */
-  function freeTextStyleItems(style: any, change: (patch: any) => unknown): Node[] {
+  function freeTextStyleItems(
+    style: FreeTextRibbonStyle,
+    change: (patch: Partial<FreeTextRibbonStyle>) => unknown,
+  ): Node[] {
     const fontSelect = h("select", { class: "rselect", "aria-label": "Font" });
     for (const group of ["Standard", "Thai + Latin", "Latin"])
       fontSelect.append(
@@ -553,7 +590,12 @@ async function main(): Promise<void> {
       "aria-label": "Font size in points",
     });
     sizeInput.addEventListener("change", () => change({ ftSize: Math.max(4, Math.min(96, +sizeInput.value || 12)) }));
-    const swatches = (colors, current, pick, label) =>
+    const swatches = (
+      colors: (RGBA | null)[],
+      current: RGBA | null,
+      pick: (color: RGBA | null) => unknown,
+      label: string,
+    ) =>
       h(
         "div",
         { class: "swatches", role: "radiogroup", "aria-label": label },
@@ -576,7 +618,7 @@ async function main(): Promise<void> {
       h("span", { class: "withunit" }, sizeInput, h("span", { class: "unit", text: "pt" })),
       field(
         "Text",
-        swatches(PALETTES.pen, style.ftColor, (color) => change({ ftColor: color }), "Text color"),
+        swatches(PALETTES.pen, style.ftColor, (color) => change({ ftColor: color as RGBA }), "Text color"),
       ),
       field(
         "Fill",
@@ -596,7 +638,7 @@ async function main(): Promise<void> {
   /** Confirms, then applies every redaction mark in the document (removing what lies under them). */
   async function confirmApplyRedactions(): Promise<void> {
     const marks = app.doc.redactMarks();
-    const count = marks.reduce((sum, mark) => sum + mark.rects.length, 0);
+    const count = marks.reduce((sum: number, mark: PageRects) => sum + mark.rects.length, 0);
     if (
       !count ||
       (await modal({
@@ -660,11 +702,11 @@ async function main(): Promise<void> {
     if (tool === "select") {
       const sel = app.selectedAnnot;
       if (sel) {
-        const annot = app.doc.annots(sel.page).find((candidate) => candidate.index === sel.index);
+        const annot = app.doc.annots(sel.page).find((candidate: AnnotInfo) => candidate.index === sel.index);
         if (annot) {
           if (annot.subtype === 3 && annot.ft) {
-            const freeText = app.doc.readFreeText(sel.page, sel.index);
-            const ftStyle = {
+            const freeText = app.doc.readFreeText(sel.page, sel.index)!;
+            const ftStyle: FreeTextRibbonStyle = {
               ftSize: freeText.style.size,
               ftColor: freeText.style.color,
               ftFill: freeText.style.fill,
@@ -698,9 +740,9 @@ async function main(): Promise<void> {
               fill: null,
               opacity: 1,
             };
-            const run = (apply, label) =>
+            const run = (apply: () => unknown, label: string) =>
               app.mutate(label, { pages: [sel.page] }, apply).catch((err) => toast(err.message, "err"));
-            const setStyle = (patch, label) => run(() => app.doc.setAnnotStyle(sel.page, sel.index, patch), label);
+            const setStyle = (patch: Partial<AnnotStyle>, label: string) => run(() => app.doc.setAnnotStyle(sel.page, sel.index, patch), label);
             items.push(
               field(
                 "Outline",
@@ -846,7 +888,7 @@ async function main(): Promise<void> {
           }),
         );
       else if (sel) {
-        const iconButton = (title, iconName, onClick, disabled = false) =>
+        const iconButton = (title: string, iconName: string, onClick: () => unknown, disabled = false) =>
           h(
             "button",
             {
@@ -1076,8 +1118,10 @@ async function main(): Promise<void> {
         h("span", { class: "hint", text: info.hint }),
       );
     else if (tool === "redact") {
-      const markCount = app.doc.redactMarks().reduce((sum, mark) => sum + mark.rects.length, 0);
-      const modeChip = (mode, label) =>
+      const markCount = app.doc
+        .redactMarks()
+        .reduce((sum: number, mark: PageRects) => sum + mark.rects.length, 0);
+      const modeChip = (mode: string, label: string) =>
         h(
           "button",
           {
@@ -1112,7 +1156,7 @@ async function main(): Promise<void> {
         if (!text) return;
         const hits = app.doc.search(text);
         if (!hits.length) return toast(`No matches for “${text}”`, "warn");
-        const byPage = new Map();
+        const byPage = new Map<number, Rect[]>();
         for (const hit of hits) byPage.set(hit.page, [...(byPage.get(hit.page) || []), ...hit.rects]);
         await app
           .mutate(`Mark “${text}” for redaction`, { pages: [...byPage.keys()] }, () => {
@@ -1169,7 +1213,10 @@ async function main(): Promise<void> {
             {
               class: "btn ghost small",
               type: "button",
-              onclick: () => app.mutate("Clear redaction marks", { pages: "all" }, () => app.doc.clearRedactMarks()),
+              onclick: () =>
+                app
+                  .mutate("Clear redaction marks", { pages: "all" }, () => app.doc.clearRedactMarks())
+                  .catch((err) => toast(err.message, "err")),
             },
             "Clear",
           ),
@@ -1178,7 +1225,7 @@ async function main(): Promise<void> {
         items.push(h("span", { class: "hint", text: info.hint }));
       }
     } else if (tool === "textbox") {
-      const kindChip = (callout, label) =>
+      const kindChip = (callout: boolean, label: string) =>
         h(
           "button",
           {
@@ -1216,7 +1263,7 @@ async function main(): Promise<void> {
         }),
       );
     } else if (tool === "line") {
-      const endsChip = (ends, label, glyph) =>
+      const endsChip = (ends: string, label: string, glyph: string) =>
         h(
           "button",
           {
@@ -1246,7 +1293,7 @@ async function main(): Promise<void> {
         h("span", { class: "hint", text: info.hint }),
       );
     } else if (tool === "rect" || tool === "ellipse") {
-      const applySetting = (assign) => (assign(), app.saveSettings(), renderRibbon());
+      const applySetting = (assign: () => unknown) => (assign(), app.saveSettings(), renderRibbon());
       items.push(
         field(
           "Outline",
@@ -1571,7 +1618,7 @@ async function main(): Promise<void> {
   };
   $("#btn-more").addEventListener("click", () => {
     const rect = $("#btn-more").getBoundingClientRect();
-    const clickById = (id) => () => $("#" + id).click();
+    const clickById = (id: string) => () => $("#" + id).click();
     openMenu(
       rect.right - 240,
       rect.bottom + 6,
@@ -1780,8 +1827,8 @@ async function main(): Promise<void> {
           hitIndex = (searchHits.indexOf(hit) + 1) % searchHits.length;
           showHit();
         }
-      } catch (err: any) {
-        toast(err.message, "err");
+      } catch (err) {
+        toast((err as Error).message, "err");
       }
   });
   $("#rp-all").addEventListener("click", async () => {
@@ -1796,8 +1843,8 @@ async function main(): Promise<void> {
       const skipped = countMatches(app, find, replaceOptions());
       replaceStatus.textContent = `Replaced ${result.count} on ${result.pages} page${result.pages === 1 ? "" : "s"}${skipped ? ` · ${skipped} couldn’t be replaced` : ""}`;
       toast(`Replaced ${result.count} match${result.count === 1 ? "" : "es"}`);
-    } catch (err: any) {
-      replaceStatus.textContent = err.message;
+    } catch (err) {
+      replaceStatus.textContent = (err as Error).message;
     }
   });
   $("#search-prev").addEventListener("click", () => {
@@ -1898,7 +1945,7 @@ async function main(): Promise<void> {
   interact.onFormatKey = (key) => {
     const editor = interact.editor;
     if (!editor) return;
-    const styleKey = { b: "bold", i: "italic", u: "underline", x: "strike" }[key];
+    const styleKey = ({ b: "bold", i: "italic", u: "underline", x: "strike" } as Record<string, StyleFlag | undefined>)[key];
     if (styleKey) {
       applyTextStyle({ [styleKey]: !editor.style[styleKey] });
     }
@@ -1971,8 +2018,8 @@ async function main(): Promise<void> {
     let source;
     try {
       source = await Growable.fromFile(file);
-    } catch (err: any) {
-      toast(`${file.name}: ${err.message || "could not be read"}`, "err", 6e3);
+    } catch (err) {
+      toast(`${file.name}: ${(err as Error).message || "could not be read"}`, "err", 6e3);
       return;
     }
     await openSource(source, file.name);
@@ -2011,7 +2058,7 @@ async function main(): Promise<void> {
       : null;
   }
   /** Opens a file source as the document, asking for a password (and retrying) when it is encrypted. */
-  async function openSource(source: any, name: string, password = ""): Promise<void> {
+  async function openSource(source: Growable | Uint8Array, name: string, password = ""): Promise<void> {
     try {
       app.open(source, name, password);
       viewer.el.scrollTop = 0;
@@ -2023,13 +2070,13 @@ async function main(): Promise<void> {
           7e3,
         );
       }
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof PdfError && err.code === 4) {
         const retryPassword = await askPassword(name, !!password);
         return retryPassword != null ? openSource(source, name, retryPassword) : undefined;
       }
       toast(
-        isEngineAbort(err) ? `${name} is too large to open in a browser tab.` : `${name}: ${err.message}`,
+        isEngineAbort(err) ? `${name} is too large to open in a browser tab.` : `${name}: ${(err as Error).message}`,
         "err",
         6e3,
       );
@@ -2039,14 +2086,14 @@ async function main(): Promise<void> {
    * Loads a PDF as a separate document (for inserting or replacing pages), asking for its password as needed.
    * Resolves to null when the password prompt is cancelled.
    */
-  async function loadPdfFile(file: File, verb: string): Promise<any> {
+  async function loadPdfFile(file: File, verb: string): Promise<Doc | null> {
     const bytes = new Uint8Array(await file.arrayBuffer());
     let password = "";
     let attempts = 0;
     for (;;)
       try {
         return pdfium.open(bytes, password);
-      } catch (err: any) {
+      } catch (err) {
         if (!(err instanceof PdfError && err.code === 4)) throw err;
         const entered = await askPassword(file.name, attempts++ > 0, verb);
         if (entered == null) return null;
@@ -2069,8 +2116,8 @@ async function main(): Promise<void> {
     let source;
     try {
       source = await loadPdfFile(file, "replace pages with");
-    } catch (err: any) {
-      return toast(`${file.name}: ${err.message}`, "err", 5e3);
+    } catch (err) {
+      return toast(`${file.name}: ${(err as Error).message}`, "err", 5e3);
     }
     if (!source) return;
     const pageCount = app.doc.pageCount;
@@ -2122,8 +2169,8 @@ async function main(): Promise<void> {
         const { t: targets, s: sources } = parseRanges();
         note.textContent = `${targets.length} page${targets.length === 1 ? "" : "s"} out, ${sources.length} in: the document will have ${pageCount - targets.length + sources.length} pages.`;
         note.classList.remove("err");
-      } catch (err: any) {
-        note.textContent = err.message;
+      } catch (err) {
+        note.textContent = (err as Error).message;
         note.classList.add("err");
       }
     };
@@ -2144,15 +2191,15 @@ async function main(): Promise<void> {
         return;
       }
       ranges = parseRanges();
-    } catch (err: any) {
+    } catch (err) {
       source.close();
-      return toast(err.message, "warn");
+      return toast((err as Error).message, "warn");
     }
     const { t: targets, s: sources } = ranges;
     const first = targets[0];
     const last = targets[targets.length - 1];
     const bookmarks: Array<{ path: number[]; page: number; top: number | null }> = [];
-    const collectBookmarks = (items) => {
+    const collectBookmarks = (items: Bookmark[]) => {
       for (const item of items) {
         if (item.page >= first && item.page <= last) {
           bookmarks.push({
@@ -2193,8 +2240,8 @@ async function main(): Promise<void> {
       app.selectedPages = new Set(sources.map((page, i) => first + i));
       thumbs.mark();
       viewer.scrollToPage(first);
-    } catch (err: any) {
-      toast(err.message, "err", 5e3);
+    } catch (err) {
+      toast((err as Error).message, "err", 5e3);
     } finally {
       source.close();
     }
@@ -2202,7 +2249,7 @@ async function main(): Promise<void> {
   /** Inserts every page of the given PDFs at `at` (default: after the last selected page, else at the end). */
   async function insertFiles(files: File[], at?: number): Promise<void> {
     const insertAt = at ?? (app.selectedPages.size ? Math.max(...app.selectedPages) + 1 : app.doc.pageCount);
-    const docs: Array<{ f: File; doc: any }> = [];
+    const docs: Array<{ f: File; doc: Doc }> = [];
     try {
       for (const file of files) {
         const doc = await loadPdfFile(file, "insert pages from");
@@ -2212,9 +2259,9 @@ async function main(): Promise<void> {
         }
         docs.push({ f: file, doc });
       }
-    } catch (err: any) {
+    } catch (err) {
       docs.forEach((entry) => entry.doc.close());
-      toast(err.message, "err", 5e3);
+      toast((err as Error).message, "err", 5e3);
       return;
     }
     await insertDocs(
@@ -2229,16 +2276,21 @@ async function main(): Promise<void> {
    * and closes them. Resolves to false (with a toast) if it failed.
    */
   async function insertDocs(
-    docs: Array<{ name: string; doc: any }>,
+    docs: Array<{ name: string; doc: Doc }>,
     at: number,
     label: string,
     fromLabel: string,
   ): Promise<boolean> {
     let inserted = 0;
+    /** The documents not closed yet: each is closed exactly once, whether the insert succeeds or fails. */
+    const unclosed = new Set(docs.map((entry) => entry.doc));
+    const closeDoc = (doc: Doc) => {
+      if (unclosed.delete(doc)) doc.close();
+    };
     try {
       await app.mutate(label, { pages: "all", structure: true }, async () => {
         let pos = at;
-        const fieldFixes: any[] = [];
+        const fieldFixes: CopiedField[] = [];
         for (const { name, doc } of docs)
           try {
             const count = doc.pageCount;
@@ -2248,7 +2300,7 @@ async function main(): Promise<void> {
             pos += count;
             inserted += count;
           } finally {
-            doc.close();
+            closeDoc(doc);
           }
         if (fieldFixes.length) {
           const fixed = await reopenWithFieldValues(pdfium, app.doc.save(), fieldFixes);
@@ -2256,9 +2308,9 @@ async function main(): Promise<void> {
           fixed.close();
         }
       });
-    } catch (err: any) {
-      docs.forEach((entry) => entry.doc.close());
-      toast(err.message, "err", 5e3);
+    } catch (err) {
+      docs.forEach((entry) => closeDoc(entry.doc));
+      toast((err as Error).message, "err", 5e3);
       return false;
     }
     toast(
@@ -2305,8 +2357,8 @@ async function main(): Promise<void> {
             : `${message}. Paste with Ctrl+V in this window (this browser won’t let Margin windows share them).`,
         );
         updatePasteButton();
-      } catch (err: any) {
-        toast(err.message, "err");
+      } catch (err) {
+        toast((err as Error).message, "err");
       } finally {
         copy.close();
       }
@@ -2323,8 +2375,8 @@ async function main(): Promise<void> {
     let doc;
     try {
       doc = pdfium.open(clip.bytes);
-    } catch (err: any) {
-      return toast(err.message, "err");
+    } catch (err) {
+      return toast((err as Error).message, "err");
     }
     const insertAt = at ?? Math.max(...selectedOrCurrentPages()) + 1;
     await insertDocs([{ name: clip.from, doc }], insertAt, clip.pages === 1 ? "Paste page" : "Paste pages", clip.from);
@@ -2486,7 +2538,7 @@ async function main(): Promise<void> {
     };
   }
   /** Changes an annotation’s style (width, dashes, fill, opacity, line ends) as one undoable step. */
-  const mutateAnnotStyle = (page: number, index: number, patch: any, label: string) =>
+  const mutateAnnotStyle = (page: number, index: number, patch: Partial<AnnotStyle>, label: string) =>
     app
       .mutate(label, { pages: [page] }, () => app.doc.setAnnotStyle(page, index, patch))
       .catch((err) => toast(err.message, "err"));
@@ -2495,16 +2547,16 @@ async function main(): Promise<void> {
    * outline, fill, width and dashes; lines width, dashes, arrowheads and direction; drawings width and dashes;
    * everything with a style also gets opacity.
    */
-  function styleItems(page: number, annot: any, canEdit: boolean): MenuItem[] {
+  function styleItems(page: number, annot: AnnotInfo, canEdit: boolean): MenuItem[] {
     const items: MenuItem[] = [];
     const subtype = annot.subtype;
     if (subtype === ANNOT.FREETEXT) {
       const freeText = annot.ft ? app.doc.readFreeText(page, annot.index) : null;
       if (!freeText) return items;
-      const restyle = (patch, label) =>
+      const restyle = (patch: Partial<FreeTextStyle>, label: string) =>
         textBoxes.update(page, annot.index, (data) => ({ ...data, style: { ...data.style, ...patch } }), label);
       items.push(
-        colorRow("Text", PALETTES.pen, freeText.style.color, (color) => restyle({ color }, "Text color"), !canEdit),
+        colorRow("Text", PALETTES.pen, freeText.style.color, (color) => restyle({ color: color as RGBA }, "Text color"), !canEdit),
         colorRow("Fill", TEXTBOX_FILLS, freeText.style.fill, (fill) => restyle({ fill }, "Text box fill"), !canEdit),
         colorRow(
           "Border",
@@ -2544,7 +2596,7 @@ async function main(): Promise<void> {
       );
     } else if (subtype !== ANNOT.STAMP && annot.color) {
       const palette =
-        PALETTES.highlight.some((c) => sameColor(c, annot.color)) || subtype === 9 || subtype === 1
+        PALETTES.highlight.some((c) => sameColor(c, annot.color!)) || subtype === 9 || subtype === 1
           ? PALETTES.highlight
           : PALETTES.pen;
       items.push(
@@ -2567,7 +2619,7 @@ async function main(): Promise<void> {
     if (!isShape && !isLine && !isInk && !isMarkup) return items;
     const style = app.doc.annotStyle(page, annot.index);
     if (!style) return items;
-    const setStyle = (patch, label) => mutateAnnotStyle(page, annot.index, patch, label);
+    const setStyle = (patch: Partial<AnnotStyle>, label: string) => mutateAnnotStyle(page, annot.index, patch, label);
     if (isShape) {
       items.push(
         colorRow(
@@ -2626,8 +2678,8 @@ async function main(): Promise<void> {
           chipRow(
             "Heads",
             [
-              { text: "Open", label: "Open arrowheads", v: "OpenArrow" },
-              { text: "Filled", label: "Filled arrowheads", v: "ClosedArrow" },
+              { text: "Open", label: "Open arrowheads", v: "OpenArrow" as LineEnd },
+              { text: "Filled", label: "Filled arrowheads", v: "ClosedArrow" as LineEnd },
             ],
             (v) => v === head,
             (v) =>
@@ -2699,7 +2751,7 @@ async function main(): Promise<void> {
       })
       .catch((err) => toast(err.message, "warn"));
   /** Annotation subtypes that can be copied, cut and duplicated. */
-  const COPYABLE_SUBTYPES = new Set([
+  const COPYABLE_SUBTYPES = new Set<number>([
     ANNOT.TEXT,
     ANNOT.FREETEXT,
     ANNOT.LINE,
@@ -2720,7 +2772,7 @@ async function main(): Promise<void> {
     return !locked || !!(perms & 16);
   };
   /** The objects that Copy/Cut would act on: the Move & resize selection or the selected annotation. */
-  function objectSelection(): { page: number; items: any[] } | null {
+  function objectSelection(): { page: number; items: ArrangeItem[] } | null {
     if (app.tool === "arrange" && arrange.sel && !arrange.cropping) {
       const items = arrange.selected();
       return items.length ? { page: arrange.sel.page, items } : null;
@@ -2746,7 +2798,8 @@ async function main(): Promise<void> {
       toast("This PDF’s permissions don’t allow removing objects", "warn");
       return null;
     }
-    const clip = arrange.clipOf(selection.page, selection.items);
+    const removable = cut ? selection.items.filter((item) => arrange.canDuplicate(item)) : [];
+    const clip = cut && !removable.length ? null : arrange.clipOf(selection.page, selection.items);
     if (!clip) {
       toast("Only annotations and pictures can be copied", "warn");
       return null;
@@ -2778,7 +2831,6 @@ async function main(): Promise<void> {
       );
     });
     if (cut) {
-      const removable = selection.items.filter((item) => arrange.canDuplicate(item));
       arrange
         .removeItems(
           selection.page,
@@ -2880,7 +2932,7 @@ async function main(): Promise<void> {
     }
   }
   /** Cut, Copy and Paste entries for the object menus. */
-  const clipboardItems = (clip: any, canEdit: boolean): MenuItem[] => {
+  const clipboardItems = (clip: ObjClip | null, canEdit: boolean): MenuItem[] => {
     const selection = objectSelection();
     const copyable = !!selection && selection.items.some((item) => arrange.canDuplicate(item));
     return [
@@ -2912,7 +2964,7 @@ async function main(): Promise<void> {
     clientY: number,
     anchor?: HTMLElement,
   ): Promise<void> {
-    const annot = app.doc.annots(page).find((a) => a.index === index);
+    const annot = app.doc.annots(page).find((a: AnnotInfo) => a.index === index);
     if (!annot) return;
     const clip = await getObjClip();
     app.selectedAnnot = { page, index };
@@ -2928,13 +2980,13 @@ async function main(): Promise<void> {
         ? "Signature"
         : isFreeText && annot.ft?.tip
           ? "Callout"
-          : annot.subtype === ANNOT.LINE && app.doc.annotStyle(page, index)?.ends?.some((end) => end !== "None")
+          : annot.subtype === ANNOT.LINE && app.doc.annotStyle(page, index)?.ends?.some((end: LineEnd) => end !== "None")
             ? "Arrow"
             : ANNOT_NAMES[annot.subtype] || "Annotation";
     const view = viewer.views[page];
     const items: MenuItem[] = [{ heading: `${kind}${annot.author ? " · " + annot.author : ""}` }];
     if (isFreeText && interact.textbox && view) {
-      items.push({ label: "Edit text", disabled: !canEdit, run: () => interact.textbox.edit(view, index) });
+      items.push({ label: "Edit text", disabled: !canEdit, run: () => interact.textbox!.edit(view, index) });
     } else {
       items.push({
         label: annot.contents && !(isStamp && annot.contents === "Signature") ? "Edit comment" : "Add comment",
@@ -3014,8 +3066,8 @@ async function main(): Promise<void> {
         await arrange.replaceImage(await encodeImage(picked, width, height), picked.w, picked.h);
         picked.bitmap.close();
         URL.revokeObjectURL(picked.url);
-      } catch (err: any) {
-        toast(err.message, "err");
+      } catch (err) {
+        toast((err as Error).message, "err");
       }
   }
   /** Saves the picture selected in Move & resize as JPEG (if stored as JPEG) or PNG. */
@@ -3038,8 +3090,8 @@ async function main(): Promise<void> {
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!blob) throw new Error("Couldn’t encode the image");
       await saveFile(new Uint8Array(await blob.arrayBuffer()), baseName + ".png", "image/png");
-    } catch (err: any) {
-      toast(err.message, "err");
+    } catch (err) {
+      toast((err as Error).message, "err");
     }
   }
   /** Right-click menu for the Move & resize selection (one or several objects). */
@@ -3054,7 +3106,8 @@ async function main(): Promise<void> {
     if (count === 1) {
       const item = items[0];
       menu.push({ heading: item.label });
-      const annot = item.kind === "annot" ? app.doc.annots(page).find((a) => a.index === item.annot) : undefined;
+      const annot =
+        item.kind === "annot" ? app.doc.annots(page).find((a: AnnotInfo) => a.index === item.annot) : undefined;
       if (annot) {
         const view = viewer.views[page];
         if (annot.subtype === ANNOT.FREETEXT && interact.textbox && view) {
@@ -3062,7 +3115,7 @@ async function main(): Promise<void> {
             label: "Edit text",
             run: () => {
               app.setTool("select");
-              interact.textbox.edit(view, annot.index);
+              interact.textbox!.edit(view, annot.index);
             },
           });
         } else {
@@ -3081,9 +3134,9 @@ async function main(): Promise<void> {
           menu.push("sep", ...styleRows);
         }
       } else if (item.label === "Link") {
-        const link = interact.links?.of(page).find((l) => l.index === item.annot);
+        const link = interact.links?.of(page).find((l: LinkInfo) => l.index === item.annot);
         if (link && interact.links) {
-          menu.push({ label: "Edit link…", disabled: !canEdit, run: () => interact.links.editDialog(page, link) });
+          menu.push({ label: "Edit link…", disabled: !canEdit, run: () => interact.links!.editDialog(page, link) });
         }
       } else if (item.kind === "image") {
         menu.push(
@@ -3103,14 +3156,14 @@ async function main(): Promise<void> {
       }
       menu.push("sep");
     } else menu.push({ heading: `${count} objects` });
-    const align = (where) => arrange.align(where);
+    const align = (where: AlignEdge) => arrange.align(where);
     menu.push(
       chipRow(
         count > 1 ? "Align" : "Align to page",
         [
-          { text: "Left", label: count > 1 ? "Align left edges" : "Page’s left edge", v: "left" },
-          { text: "Centre", label: count > 1 ? "Align centres" : "Centre on the page", v: "hcenter" },
-          { text: "Right", label: count > 1 ? "Align right edges" : "Page’s right edge", v: "right" },
+          { text: "Left", label: count > 1 ? "Align left edges" : "Page’s left edge", v: "left" as AlignEdge },
+          { text: "Centre", label: count > 1 ? "Align centres" : "Centre on the page", v: "hcenter" as AlignEdge },
+          { text: "Right", label: count > 1 ? "Align right edges" : "Page’s right edge", v: "right" as AlignEdge },
         ],
         () => false,
         align,
@@ -3119,9 +3172,9 @@ async function main(): Promise<void> {
       chipRow(
         "",
         [
-          { text: "Top", label: count > 1 ? "Align tops" : "Page’s top", v: "top" },
-          { text: "Middle", label: count > 1 ? "Align middles" : "Centre on the page vertically", v: "vmiddle" },
-          { text: "Bottom", label: count > 1 ? "Align bottoms" : "Page’s bottom", v: "bottom" },
+          { text: "Top", label: count > 1 ? "Align tops" : "Page’s top", v: "top" as AlignEdge },
+          { text: "Middle", label: count > 1 ? "Align middles" : "Centre on the page vertically", v: "vmiddle" as AlignEdge },
+          { text: "Bottom", label: count > 1 ? "Align bottoms" : "Page’s bottom", v: "bottom" as AlignEdge },
         ],
         () => false,
         align,
@@ -3223,10 +3276,10 @@ async function main(): Promise<void> {
         disabled: !canAnnot || !interact.textbox,
         run: () => {
           app.setTool("select");
-          interact.textbox.edit(view, null, {
+          interact.textbox!.edit(view, null, {
             box: { l: point.x, r: point.x + 200, t: point.y, b: point.y - app.settings.ftSize * 2.2 },
             text: "",
-            style: interact.textbox.style(),
+            style: interact.textbox!.style(),
           });
         },
       },
@@ -3247,7 +3300,7 @@ async function main(): Promise<void> {
   }
   /** Right-click menu for a link with Select. */
   function linkMenu(page: number, index: number, clientX: number, clientY: number, anchor?: HTMLElement): void {
-    const link = interact.links?.of(page).find((l) => l.index === index);
+    const link = interact.links?.of(page).find((l: LinkInfo) => l.index === index);
     if (!link || !interact.links) return;
     const { locked, perms } = app.limits;
     const canEdit = !locked || !!(perms & 8);
@@ -3260,14 +3313,14 @@ async function main(): Promise<void> {
         {
           label: link.uri ? "Open link" : "Go to page",
           disabled: !link.uri && !(link.page != null && link.page >= 0),
-          run: () => interact.links.follow(link),
+          run: () => interact.links!.follow(link),
         },
         ...(link.uri
           ? [
               {
                 label: "Copy link address",
                 run: () => {
-                  navigator.clipboard?.writeText(link.uri).then(
+                  navigator.clipboard?.writeText(link.uri!).then(
                     () => toast("Link address copied"),
                     () => toast("Couldn’t reach the clipboard", "warn"),
                   );
@@ -3276,7 +3329,7 @@ async function main(): Promise<void> {
             ]
           : []),
         "sep",
-        { label: "Edit link…", disabled: !canEdit, run: () => interact.links.editDialog(page, link) },
+        { label: "Edit link…", disabled: !canEdit, run: () => interact.links!.editDialog(page, link) },
         {
           label: "Remove link",
           danger: true,
@@ -3370,11 +3423,11 @@ async function main(): Promise<void> {
         annotPress = {
           t: window.setTimeout(() => {
             if (!annotPress || menuOpen()) return;
-            const page = +annotPress.el.closest(".page").dataset.index;
+            const page = +annotPress.el.closest<HTMLElement>(".page")!.dataset.index!;
             if (annotPress.el.classList.contains("abox")) {
-              annotMenu(page, +annotPress.el.dataset.annot, annotPress.x, annotPress.y, annotPress.el);
+              annotMenu(page, +annotPress.el.dataset.annot!, annotPress.x, annotPress.y, annotPress.el);
             } else {
-              linkMenu(page, +annotPress.el.dataset.link, annotPress.x, annotPress.y, annotPress.el);
+              linkMenu(page, +annotPress.el.dataset.link!, annotPress.x, annotPress.y, annotPress.el);
             }
             annotPress = null;
           }, 550),
@@ -3399,12 +3452,12 @@ async function main(): Promise<void> {
   for (const type of ["pointermove", "pointerup", "pointercancel"] as const)
     viewer.el.addEventListener(type, cancelAnnotPress, true);
   /** The page thumbnail containing an element, if any. */
-  const thumbOf = (el: any): any => el?.closest?.(".thumb");
+  const thumbOf = (el: EventTarget | null) => (el as Element | null)?.closest?.<HTMLElement>(".thumb");
   thumbs.list.addEventListener("contextmenu", (event) => {
     const thumb = thumbOf(event.target);
     if (thumb) {
       event.preventDefault();
-      pageMenu(+thumb.dataset.index, event.clientX, event.clientY, thumb);
+      pageMenu(+thumb.dataset.index!, event.clientX, event.clientY, thumb);
     }
   });
   thumbs.list.addEventListener("keydown", (event) => {
@@ -3413,7 +3466,7 @@ async function main(): Promise<void> {
       if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
         event.preventDefault();
         const rect = thumb.getBoundingClientRect();
-        pageMenu(+thumb.dataset.index, rect.left + rect.width / 2, rect.top + rect.height / 2, thumb);
+        pageMenu(+thumb.dataset.index!, rect.left + rect.width / 2, rect.top + rect.height / 2, thumb);
       } else if ((event.key === "Delete" || event.key === "Backspace") && !event.metaKey && !event.ctrlKey) {
         event.preventDefault();
         event.stopPropagation();
@@ -3428,7 +3481,7 @@ async function main(): Promise<void> {
       thumbPress = {
         t: window.setTimeout(() => {
           if (thumbPress && !menuOpen()) {
-            pageMenu(+thumbPress.el.dataset.index, thumbPress.x, thumbPress.y, thumbPress.el);
+            pageMenu(+thumbPress.el.dataset.index!, thumbPress.x, thumbPress.y, thumbPress.el);
           }
           thumbPress = null;
         }, 550),
@@ -3451,8 +3504,8 @@ async function main(): Promise<void> {
   for (const type of ["pointermove", "pointerup", "pointercancel"] as const)
     thumbs.list.addEventListener(type, cancelThumbPress);
   /** Whether keys and clipboard events belong to a text field (or the text editor is open). */
-  const isTypingIn = (el: any): boolean =>
-    !!el?.closest?.("input,textarea,select,[contenteditable]") || !!interact.editor;
+  const isTypingIn = (el: EventTarget | null): boolean =>
+    !!(el as Element | null)?.closest?.("input,textarea,select,[contenteditable]") || !!interact.editor;
   /** Whether focus is in the page sidebar. */
   const thumbsFocused = (): boolean => !!document.activeElement?.closest?.("#thumbs");
   document.addEventListener("copy", (event) => {
@@ -3524,8 +3577,8 @@ async function main(): Promise<void> {
       } else if (action === "extract") {
         await extractDialog(app, pdfium, pages, saveFile);
       }
-    } catch (err: any) {
-      toast(err.message, "err");
+    } catch (err) {
+      toast((err as Error).message, "err");
     }
   }
   /** Saves the edited document; resolves to false if it couldn’t be written. */
@@ -3533,8 +3586,8 @@ async function main(): Promise<void> {
     let bytes;
     try {
       bytes = app.exportBytes();
-    } catch (err: any) {
-      toast(isEngineAbort(err) ? ENGINE_FULL : err.message, "err", 8e3);
+    } catch (err) {
+      toast(isEngineAbort(err) ? ENGINE_FULL : (err as Error).message, "err", 8e3);
       return false;
     }
     await saveFile(bytes, app.editedName);
@@ -3554,13 +3607,14 @@ async function main(): Promise<void> {
           refreshTopBar();
         }
         toast(`Saved ${filename}`);
-      } catch (err: any) {
-        if (err?.code === "declined") {
+      } catch (err) {
+        const failure = err as { code?: string; message?: string } | null;
+        if (failure?.code === "declined") {
           toast("Save cancelled", "warn");
-        } else if (err?.code === "rate_limited") {
+        } else if (failure?.code === "rate_limited") {
           toast("A save prompt is already open", "warn");
         } else {
-          toast(`Couldn’t save: ${err?.message || err?.code || "unknown error"}`, "err", 5e3);
+          toast(`Couldn’t save: ${failure?.message || failure?.code || "unknown error"}`, "err", 5e3);
         }
       }
       return;
@@ -3673,7 +3727,7 @@ async function main(): Promise<void> {
   });
   /** Tool name by its single-key shortcut (lower case). */
   const TOOL_BY_KEY = Object.fromEntries(
-    (Object.entries(TOOL_INFO) as Array<[string, any]>).map(([tool, info]) => [info.key.toLowerCase(), tool]),
+    (Object.entries(TOOL_INFO) as Array<[string, ToolInfo]>).map(([tool, info]) => [info.key.toLowerCase(), tool]),
   );
   document.addEventListener("keydown", (event) => {
     const inField = (event.target as Element).closest<HTMLElement>("input,textarea,select,[contenteditable]");
@@ -3753,6 +3807,7 @@ async function main(): Promise<void> {
           return;
         }
         if (event.key === "Escape") {
+          event.preventDefault();
           crop.sel = null;
           crop.refresh();
           renderRibbon();

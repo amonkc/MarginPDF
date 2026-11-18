@@ -1,21 +1,9 @@
 import { unionRect } from '../engine/pdfium';
 import { toast, modal, svg, h } from './dom';
-import type { Box, Pt, Rect } from '../engine/types';
-
-/** The parts of a viewer page view that the link tool uses. */
-interface PageView {
-  index: number;
-  /** page → overlay pixels */
-  tf: { box(r: Rect): Box };
-  ov: HTMLElement;
-  svg: SVGSVGElement;
-}
-
-/** A link annotation as listed by Doc.links(): a web/mail address, or a page index (-1 or null when neither). */
-type LinkInfo = { index: number; rect: Rect; uri?: string | null; page?: number | null };
-
-/** Where a new or edited link goes. */
-type LinkTarget = { uri: string } | { page: number };
+import type { Pt, Rect } from '../engine/types';
+import type { LinkInfo, LinkTarget } from '../engine/pdfium';
+import type { App } from '../app';
+import type { PageView, Viewer } from './viewer';
 
 /** Drag helper the interact layer passes to tools (see Interact). */
 type DragFn = (ev: PointerEvent, pv: PageView, onMove: (p: Pt) => void, onUp: (p: Pt) => void) => void;
@@ -35,11 +23,11 @@ function normalizeLinkTarget(input: string): string | null {
 
 /** Link tool: shows clickable link boxes on pages, follows them, and adds/edits/removes links. */
 class Links {
-  app: any;
-  v: any;
+  app: App;
+  v: Viewer;
   /** Links per page index; cleared on every document change. */
   cache: Map<number, LinkInfo[]> = /* @__PURE__ */ new Map();
-  constructor(app: any, viewer: any) {
+  constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
     app.on(() => this.cache.clear());
@@ -148,7 +136,7 @@ class Links {
       }
       target = { page: pageNo - 1 };
     }
-    const area = link ? link.rect : rect;
+    const area = link ? link.rect : rect!;
     await this.app.mutate(link ? "Edit link" : "Add link", { pages: [page] }, () => {
       if (link) this.app.doc.deleteAnnot(page, link.index);
       this.app.doc.addLink(page, area, target);

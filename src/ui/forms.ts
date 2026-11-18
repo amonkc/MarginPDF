@@ -1,35 +1,15 @@
 import { FIELD, nameRadioStates } from '../engine/pdfium';
 import { toast, modal, svg, h } from './dom';
-import type { Box, Pt, Rect } from '../engine/types';
-
-/** The parts of a viewer page view that the form field tool uses. */
-interface PageView {
-  index: number;
-  /** page → overlay pixels */
-  tf: { box(r: Rect): Box };
-  ov: HTMLElement;
-  svg: SVGSVGElement;
-}
-
-/** A form field widget as listed by Doc.fields(). */
-type FieldInfo = {
-  index: number;
-  type: number;
-  rect: Rect;
-  options: { label: string; [k: string]: unknown }[];
-  name: string;
-  value: string;
-  checked: boolean;
-  readOnly: boolean;
-  multiline: boolean;
-  exportValue: string;
-};
+import type { Pt, Rect } from '../engine/types';
+import type { FieldInfo, FieldKind as PdfFieldKind } from '../engine/pdfium';
+import type { App } from '../app';
+import type { PageView, Viewer } from './viewer';
 
 /** Drag helper the interact layer passes to tools (see Interact). */
 type DragFn = (ev: PointerEvent, pv: PageView, onMove: (p: Pt) => void, onUp: (p: Pt) => void) => void;
 
 /** A kind of field the form tool can create, with its default size (pt) and the base of its default name. */
-export type FieldKind = { kind: string; label: string; w: number; h: number; base: string };
+export type FieldKind = { kind: PdfFieldKind; label: string; w: number; h: number; base: string };
 
 /** Field kinds offered by the form tool, in ribbon order. */
 const FIELD_KINDS: FieldKind[] = [{ kind: "text", label: "Text", w: 180, h: 22, base: "Text" }, { kind: "multiline", label: "Multi-line", w: 240, h: 64, base: "Notes" }, { kind: "checkbox", label: "Checkbox", w: 14, h: 14, base: "Check" }, { kind: "radio", label: "Radio", w: 14, h: 14, base: "Choice" }, { kind: "dropdown", label: "Dropdown", w: 160, h: 22, base: "Dropdown" }, { kind: "list", label: "List", w: 160, h: 64, base: "List" }, { kind: "signature", label: "Signature", w: 180, h: 44, base: "Signature" }];
@@ -40,9 +20,9 @@ const toPdfName = (s: string, fallback: string) => s.normalize("NFKD").replace(/
 
 /** Form field tool: shows field boxes, draws new fields and edits existing ones through dialogs. */
 class Forms {
-  app: any;
-  v: any;
-  constructor(app: any, viewer: any) {
+  app: App;
+  v: Viewer;
+  constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
   }
@@ -98,7 +78,7 @@ class Forms {
    * Asks for the new field's name (radio: group and on-value; dropdown/list: options) and creates it.
    * Radio buttons default to the last group used so a set can be placed one after another.
    */
-  async newDialog(page: number, kindName: string, rect: Rect): Promise<void> {
+  async newDialog(page: number, kindName: PdfFieldKind, rect: Rect): Promise<void> {
     const kind = FIELD_KINDS.find((k) => k.kind === kindName)!, radioGroups = [...new Set(this.allFields().filter((f) => f.type === FIELD.RADIO).map((f) => f.name))], lastGroup = this.app.settings.formLastGroup && radioGroups.includes(this.app.settings.formLastGroup) ? this.app.settings.formLastGroup : "", nameInput = h("input", { class: "tinput", id: "ff-name", value: kindName === "radio" ? lastGroup || this.uniqueName("Group") : this.uniqueName(kind.base), autocomplete: "off", list: "ff-groups" }) as HTMLInputElement, rows: HTMLElement[] = [h("label", { class: "stack-field" }, h("span", { class: "rlabel", text: kindName === "radio" ? "Group (buttons with the same group name: only one can be chosen)" : "Field name" }), nameInput)];
     if (kindName === "radio") rows.push(h("datalist", { id: "ff-groups" }, ...radioGroups.map((g) => h("option", { value: g }))));
     let valueInput: HTMLInputElement | null = null, optionsInput: HTMLTextAreaElement | null = null;

@@ -1,6 +1,8 @@
 import { stampAppearance } from '../engine/text';
 import { toast } from './dom';
 import type { Pt, RGBA } from '../engine/types';
+import type { App } from '../app';
+import type { PageView } from './viewer';
 
 /** A built-in stamp: settings key, the text drawn on it and its ink colour. */
 export type StampDef = { key: string; label: string; color: RGBA };
@@ -28,7 +30,7 @@ const STAMPS: StampDef[] = [
 ];
 
 /** The stamp chosen in settings: a built-in one, or the custom text (null when that text is empty). */
-function currentStamp(app: any): { label: string; color: RGBA } | null {
+function currentStamp(app: App): { label: string; color: RGBA } | null {
   const settings = app.settings;
   if (settings.stamp === "custom") {
     const text = settings.stampCustom.trim();
@@ -42,20 +44,20 @@ const stampDateText = () => (/* @__PURE__ */ new Date()).toLocaleString(undefine
 
 /**
  * Draws the current stamp centred on `at` on the given page, as one undoable step.
- * Returns the new annotation (whatever `Doc.addDrawnStamp` returns), or null if nothing was placed.
+ * Returns the new annotation's index (from `Doc.addDrawnStamp`), or null if nothing was placed.
  */
-async function placeStamp(app: any, page: { index: number }, at: Pt): Promise<any> {
+async function placeStamp(app: App, page: Pick<PageView, "index">, at: Pt): Promise<number | null> {
   const stamp = currentStamp(app);
   if (!stamp) {
     toast("Type the custom stamp text first", "warn");
     return null;
   }
   const sub = app.settings.stampDated ? `${app.settings.author} · ${stampDateText()}` : undefined;
-  let placed: any = null;
+  let placed: number | null = null;
   await app.mutate("Stamp", { pages: [page.index] }, async () => {
     const drawn = await stampAppearance({ label: stamp.label, color: stamp.color, sub }, at);
     placed = app.doc.addDrawnStamp(page.index, drawn.rect, sub ? `${stamp.label} — ${sub}` : stamp.label, drawn.content, app.settings.author);
-  }).catch((err: any) => toast(err.message, "err"));
+  }).catch((err: Error) => toast(err.message, "err"));
   return placed;
 }
 

@@ -1,15 +1,8 @@
-import { loadFont, fontCss, outlineFont, renderFreeText, freeTextHeight } from '../engine/text';
+import { loadFont, fontCss, outlineFont, renderFreeText, freeTextHeight, DEFAULT_FT_BORDER_WIDTH } from '../engine/text';
 import { toast, svg, h } from './dom';
-import type { Box, FreeTextData, FreeTextStyle, Pt, RGBA, Rect } from '../engine/types';
-
-/** The parts of a viewer page view that the text box tool uses. */
-interface PageView {
-  index: number;
-  /** page → overlay pixels */
-  tf: { apply(x: number, h): [number, number]; box(r: Rect): Box };
-  ov: HTMLElement;
-  svg: SVGSVGElement;
-}
+import type { FreeTextData, FreeTextStyle, Pt, RGBA, Rect } from '../engine/types';
+import type { App } from '../app';
+import type { PageView, Viewer } from './viewer';
 
 /**
  * Drag helper the interact layer passes to tools: tracks the pointer from `ev` and calls `onMove` with each
@@ -26,12 +19,12 @@ const DEFAULT_BOX_WIDTH = 200;
 
 /** Text box and callout tool: draws new boxes and edits their text in an in-place textarea. */
 class TextBoxes {
-  app: any;
-  v: any;
+  app: App;
+  v: Viewer;
   open: OpenEditor | null = null;
   onChange: () => void = () => {
   };
-  constructor(app: any, viewer: any) {
+  constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
   }
@@ -86,9 +79,9 @@ class TextBoxes {
     const font = outlineFont(ft.style.fontKey, ft.text || "ก");
     await loadFont(font).catch(() => {
     });
-    const box = pv.tf.box(ft.box), zoom: number = this.v.zoom, st = ft.style, borderW = st.border ? st.borderWidth : 0, editor = h("textarea", { class: "ftedit", spellcheck: true, "aria-label": "Text box" }) as HTMLTextAreaElement;
+    const box = pv.tf.box(ft.box), zoom: number = this.v.zoom, st = ft.style, borderW = st.border ? st.borderWidth ?? DEFAULT_FT_BORDER_WIDTH : 0, editor = h("textarea", { class: "ftedit", spellcheck: true, "aria-label": "Text box" }) as HTMLTextAreaElement;
     editor.value = ft.text;
-    Object.assign(editor.style, { left: box.x + "px", top: box.y + "px", width: box.w + "px", minHeight: box.h + "px", padding: (4 + borderW!) * zoom + "px", fontFamily: fontCss(font), fontSize: st.size * zoom + "px", lineHeight: "1.3", color: rgbString(st.color), background: st.fill ? rgbString(st.fill) : "rgba(255,255,255,.85)", borderColor: st.border ? rgbString(st.border) : "transparent", borderWidth: Math.max(1, borderW! * zoom) + "px" });
+    Object.assign(editor.style, { left: box.x + "px", top: box.y + "px", width: box.w + "px", minHeight: box.h + "px", padding: (4 + borderW) * zoom + "px", fontFamily: fontCss(font), fontSize: st.size * zoom + "px", lineHeight: "1.3", color: rgbString(st.color), background: st.fill ? rgbString(st.fill) : "rgba(255,255,255,.85)", borderColor: st.border ? rgbString(st.border) : "transparent", borderWidth: Math.max(1, borderW * zoom) + "px" });
     const autoHeight = () => {
       editor.style.height = "0px";
       editor.style.height = Math.max(box.h, editor.scrollHeight) + "px";

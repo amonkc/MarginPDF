@@ -1,4 +1,4 @@
-version v2.24.1
+version v2.24.2
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -44,5 +44,8 @@ bookmarks ["",true]
 comments 14
 saved {"pages":3,"annots":[13,1,0],"text":[1,1,1]}
 protect [true,3]
+link to another page [1]
+text box border default [null,1]
+print empty range message Enter the pages
 touch drag moved true
 errors []
