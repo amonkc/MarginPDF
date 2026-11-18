@@ -1,13 +1,13 @@
 // End-to-end regression run: drives Margin in headless Chromium and prints a deterministic log of what
 // happened (counts, labels, styles, text found in the saved PDF). Compare logs between builds:
-//   node tests/e2e.mjs http://localhost:8765/local.html > new.log
+//   node tests/e2e.mjs http://localhost:8788/ > new.log
 // Uses the Playwright copy that ships with the dev tools (PLAYWRIGHT_BROWSERS_PATH / /opt/npm-tools).
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 let pw;
 try { pw = require('playwright'); } catch { pw = require('/opt/npm-tools/node_modules/playwright'); }
 const { chromium, devices } = pw;
-const url = process.argv[2] || 'http://localhost:8765/local.html';
+const url = process.argv[2] || 'http://localhost:8788/';
 const out = [];
 const log = (k, v) => { const line = k + ' ' + (typeof v === 'string' ? v : JSON.stringify(v)); out.push(line); console.log(line); };
 const r1 = (x) => Math.round(x * 10) / 10;

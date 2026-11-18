@@ -1,4 +1,4 @@
-// Turns `vite build --mode web` (web/) into the deployable static site for Cloudflare (Workers static assets):
+// Turns `vite build` (web/) into the deployable static site for Cloudflare (Workers static assets):
 //  - copies public/ into web/a/ under content-hashed names and lists them in index.html (engine/assets.ts reads
 //    the list), so every asset can be cached by browsers and Cloudflare for a year and is downloaded once;
 //  - writes web/_headers: long caching for hashed files, revalidation for index.html, security headers, and a

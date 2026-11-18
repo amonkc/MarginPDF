@@ -1,5 +1,5 @@
 import "./style.css";
-import "virtual:ui-fonts";
+import "./ui-fonts";
 import { App, FULL_SAVE_MAX } from "./app";
 import { CHANGELOG, VERSION } from "./changelog";
 import { loadAsset } from "./engine/assets";
@@ -90,25 +90,6 @@ interface LongPress {
   el: HTMLElement;
 }
 
-/** The part of the host's "downloads" capability Margin uses. */
-interface Downloads {
-  save(file: { filename: string; data: Blob }): Promise<unknown>;
-}
-/** The claude.ai host API on `window` (absent outside the host). */
-type HostWindow = Window & { claude?: { use?: (capability: string) => unknown } };
-
-let downloadsPromise: Promise<Downloads | null> | null = null;
-
-/**
- * The claude.ai host's "downloads" capability, used to save files from inside the artifact frame.
- * Resolves to null outside the host (or if the capability can't be loaded); the lookup is cached.
- */
-function getDownloads(): Promise<Downloads | null> {
-  const claude = (window as HostWindow).claude;
-  return claude?.use
-    ? (downloadsPromise ??= Promise.resolve(claude.use("downloads") as Downloads | null).catch(() => null))
-    : Promise.resolve(null);
-}
 /** Boots the PDF engine and HarfBuzz, builds the whole UI and wires every control, then opens the welcome PDF. */
 async function main(): Promise<void> {
   $$("[data-i]").forEach((el) => {
@@ -3607,31 +3588,10 @@ async function main(): Promise<void> {
     return true;
   }
   /**
-   * Saves bytes as a file: through the host’s downloads capability when available, else via a download link.
+   * Saves bytes as a file through a download link.
    * Saving the edited document under its name clears the dirty flag.
    */
   async function saveFile(bytes: Uint8Array, filename: string, mime = "application/pdf"): Promise<void> {
-    const downloads = await getDownloads();
-    if (downloads) {
-      try {
-        await downloads.save({ filename, data: new Blob([bytes], { type: mime }) });
-        if (filename === app.editedName) {
-          app.dirty = false;
-          refreshTopBar();
-        }
-        toast(`Saved ${filename}`);
-      } catch (err) {
-        const failure = err as { code?: string; message?: string } | null;
-        if (failure?.code === "declined") {
-          toast("Save cancelled", "warn");
-        } else if (failure?.code === "rate_limited") {
-          toast("A save prompt is already open", "warn");
-        } else {
-          toast(`Couldn’t save: ${failure?.message || failure?.code || "unknown error"}`, "err", 5e3);
-        }
-      }
-      return;
-    }
     try {
       const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
       const link = h("a", { href: url, download: filename });

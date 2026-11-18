@@ -2,16 +2,16 @@
   "name": "margin-pdf-editor",
   "private": true,
   "license": "MIT",
-  "version": "2.25.2",
+  "version": "2.25.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc",
-    "build": "tsc && vite build && node scripts/artifact.mjs",
-    "build:web": "tsc && vite build --mode web && node scripts/web.mjs",
+    "build": "tsc && vite build && node scripts/web.mjs",
+    "build:web": "npm run build",
     "serve:web": "node scripts/serve.mjs web 8788",
     "test": "node tests/e2e.mjs",
-    "deploy": "npm run build:web && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@embedpdf/pdfium": "^2.15.1",
@@ -26,7 +26,6 @@
     "@types/nspell": "^2.1.6",
     "typescript": "5.8",
     "vite": "^6.4.6",
-    "vite-plugin-singlefile": "^2.3.4",
     "wrangler": "^4.164.0"
   }
 }

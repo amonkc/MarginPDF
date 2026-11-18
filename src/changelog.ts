@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.25.3",
+    date: "2026-11-18",
+    notes: ["Margin is now only a website: the single-page claude.ai version is retired, and the app no longer contains the code that version needed."],
+  },
+  {
     version: "2.25.2",
     date: "2026-11-18",
     notes: ["Margin itself is now open source under the MIT License, noted at the top of the open-source licences."],
@@ -428,6 +433,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.25.2";
+const VERSION = "2.25.3";
 
 export { CHANGELOG, VERSION };
