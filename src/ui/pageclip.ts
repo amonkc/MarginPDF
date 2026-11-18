@@ -72,11 +72,14 @@ async function dbPut(key: string, value: unknown): Promise<boolean> {
   return ok;
 }
 
-/** Reads `key`: undefined when the database can't be opened, null when the key is missing or the read fails. */
-async function dbGet(key: string): Promise<any> {
+/**
+ * Reads `key`: undefined when the database can't be opened, null when the key is missing or the read fails.
+ * `T` is what this module stored under the key (IndexedDB values are untyped structured clones).
+ */
+async function dbGet<T>(key: string): Promise<T | null | undefined> {
   const db = await openDb();
   if (!db) return;
-  const value = await new Promise((resolve) => {
+  const value = await new Promise<T | null>((resolve) => {
     try {
       const request = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
       request.onsuccess = () => resolve(request.result || null);
@@ -99,7 +102,7 @@ async function putClip(clip: PageClip): Promise<boolean> {
 
 /** The most recent page clip from any window (or this window's own, whichever is newer). */
 async function getClip(): Promise<PageClip | null> {
-  const stored = await dbGet(PAGE_CLIP_KEY);
+  const stored = await dbGet<PageClip>(PAGE_CLIP_KEY);
   return stored === undefined ? localPageClip : stored && (!localPageClip || stored.at >= localPageClip.at) ? stored : localPageClip;
 }
 
@@ -124,7 +127,7 @@ async function putObjClip(clip: ObjClip): Promise<boolean> {
 
 /** The most recent object clip from any window (or this window's own, whichever is newer). */
 async function getObjClip(): Promise<ObjClip | null> {
-  const stored = await dbGet(OBJ_CLIP_KEY);
+  const stored = await dbGet<ObjClip>(OBJ_CLIP_KEY);
   return stored === undefined ? localObjClip : stored && (!localObjClip || stored.at >= localObjClip.at) ? stored : localObjClip;
 }
 

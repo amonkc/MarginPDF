@@ -1,21 +1,11 @@
 import { Affine } from '../engine/pdfium';
 import { toast, h } from './dom';
 import type { Box, Rect } from '../engine/types';
+import type { App } from '../app';
+import type { PageView, Viewer } from './viewer';
 
 /** The six coefficients of an affine transform (PDF matrix order). */
 type AffineLike = { a: number; b: number; c: number; d: number; e: number; f: number };
-
-/** The parts of a viewer page view that the crop tool uses. */
-interface PageView {
-  index: number;
-  /** page → overlay pixels */
-  tf: { apply(x: number, h): [number, number]; box(r: Rect): Box };
-  /** overlay pixels → page */
-  inv: { apply(x: number, h): [number, number] };
-  ov: HTMLElement;
-  w: number;
-  visible: boolean;
-}
 
 /** The pending crop rectangle: which page it was drawn on and the rectangle in PDF space. */
 type CropSelection = { page: number; rect: Rect };
@@ -60,12 +50,12 @@ const MIN_CROPPED_SIZE = 36;
  * chosen pages by the same margins.
  */
 class Crop {
-  app: any;
-  v: any;
+  app: App;
+  v: Viewer;
   sel: CropSelection | null = null;
   onChange: () => void = () => {
   };
-  constructor(app: any, viewer: any) {
+  constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
   }

@@ -1,13 +1,10 @@
 import { svg, h } from './dom';
-import type { Box, Rect } from '../engine/types';
+import type { Rect, AnnotInfo } from '../engine/types';
+import type { Affine, FieldInfo, TextObjectInfo } from '../engine/pdfium';
+import type { App } from '../app';
 
 /** Page ⇄ device transform for one page view (an engine `Affine`). */
-export type PageTransform = {
-  apply(x: number, h): [number, number];
-  box(rect: Rect): Box;
-  invert(): PageTransform;
-  [k: string]: any;
-};
+export type PageTransform = Affine;
 
 /** One rendered page in the viewer and its cached per-page data. */
 export type PageView = {
@@ -30,9 +27,9 @@ export type PageView = {
   visible: boolean;
   /** overlay must be rebuilt when the page next becomes visible */
   ovStale?: boolean;
-  annots?: any[];
-  fields?: any[];
-  texts?: any[];
+  annots?: AnnotInfo[];
+  fields?: FieldInfo[];
+  texts?: TextObjectInfo[];
   /** page → device pixels at the current zoom (lazily computed; set to null to recompute) */
   tf: PageTransform;
   /** device pixels → page */
@@ -52,7 +49,7 @@ const PAGE_GAP = 22;
 class Viewer {
   el: HTMLElement;
   inner: HTMLElement;
-  app: any;
+  app: App;
   views: PageView[] = [];
   zoom = 1;
   fit: "width" | "page" | null = "width";
@@ -68,7 +65,7 @@ class Viewer {
   };
   onPage: (page: number) => void = () => {
   };
-  constructor(el: HTMLElement, app: any) {
+  constructor(el: HTMLElement, app: App) {
     this.el = el;
     this.app = app;
     this.inner = h("div", { class: "pages" });
@@ -286,13 +283,13 @@ class Viewer {
     this.el.scrollTo({ top: view.wrap.offsetTop + offset - (pageY == null ? 16 : 8), behavior: "smooth" });
   }
   /** Top-level annotations of a page (replies excluded), cached until invalidated. */
-  annotsOf(view: PageView): any[] {
-    return view.annots ??= this.app.doc.annots(view.index).filter((a: any) => a.irt == null);
+  annotsOf(view: PageView): AnnotInfo[] {
+    return view.annots ??= this.app.doc.annots(view.index).filter((a: AnnotInfo) => a.irt == null);
   }
-  fieldsOf(view: PageView): any[] {
+  fieldsOf(view: PageView): FieldInfo[] {
     return view.fields ??= this.app.doc.fields(view.index);
   }
-  textsOf(view: PageView): any[] {
+  textsOf(view: PageView): TextObjectInfo[] {
     return view.texts ??= this.app.doc.textObjects(view.index);
   }
   /** Pointer position → PDF point on the page. */

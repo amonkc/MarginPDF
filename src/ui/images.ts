@@ -1,4 +1,5 @@
 import type { Box, ImageSrc, Matrix } from '../engine/types';
+import type { PageView } from './viewer';
 
 /** An image file decoded for placing on a page. `url` is an object URL the caller must revoke. */
 export type DecodedImage = { bitmap: ImageBitmap; w: number; h: number; jpeg: boolean; url: string; name: string };
@@ -46,7 +47,7 @@ function dragImageBox(img: { w: number; h: number }, x0: number, y0: number, x1:
 }
 
 /** PDF image matrix that maps the unit square onto a screen box of a page view (via its inverse transform). */
-function imageMatrix(view: any, box: Box): Matrix {
+function imageMatrix(view: Pick<PageView, "inv">, box: Box): Matrix {
   const [x0, y0] = view.inv.apply(box.x, box.y + box.h), [x1, y1] = view.inv.apply(box.x + box.w, box.y + box.h), [x2, y2] = view.inv.apply(box.x, box.y);
   return [x1 - x0, y1 - y0, x2 - x0, y2 - y0, x0, y0];
 }
@@ -98,7 +99,7 @@ function pickImageFile(): Promise<File | null> {
 }
 
 /** Wraps raw RGBA pixels as an ImageSrc, re-encoding them as JPEG first when `asJpeg` is set (falls back to RGBA). */
-async function encodePixels(rgba: any, w: number, h: number, asJpeg: any): Promise<ImageSrc> {
+async function encodePixels(rgba: Uint8ClampedArray, w: number, h: number, asJpeg: boolean): Promise<ImageSrc> {
   if (asJpeg) {
     const canvas = document.createElement("canvas");
     canvas.width = w;

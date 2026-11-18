@@ -1,12 +1,17 @@
 /** Largest size a file buffer may reach (4 GB − 1, the wasm32 address-space limit). */
 const MAX_BYTES = 4294967295;
 
+/** ES2024 resizable ArrayBuffer members (the project's lib is ES2022, which doesn't declare them). */
+type MaybeResizable = ArrayBuffer & { readonly resizable?: boolean; readonly maxByteLength?: number; resize?(newLength: number): void };
+/** The ArrayBuffer constructor with the ES2024 `maxByteLength` option. */
+type ResizableArrayBufferCtor = { new (length: number, options?: { maxByteLength: number }): ArrayBuffer; prototype: MaybeResizable };
+
 /**
  * Allocate an ArrayBuffer of `size` bytes that can grow in place (resizable ArrayBuffer) where supported.
  * Tries the preferred maximum first, then smaller reservations; falls back to a fixed-size buffer.
  */
 function allocBuffer(size: number, preferredMax: number): ArrayBuffer {
-  const AB: any = ArrayBuffer;
+  const AB = ArrayBuffer as ResizableArrayBufferCtor;
   if (typeof AB.prototype.resize == "function") {
     for (const candidate of [preferredMax, size * 2 + (64 << 20), size + (256 << 20), size + (16 << 20)]) {
       const maxByteLength = Math.min(MAX_BYTES, Math.max(size, candidate));
@@ -56,13 +61,13 @@ class Growable {
   writeAt(offset: number, bytes: Uint8Array): void {
     const end = offset + bytes.length;
     if (end > MAX_BYTES) throw new Error("This document has grown past 4 GB");
-    const current: any = this.buf;
+    const current: MaybeResizable = this.buf;
     if (end > current.byteLength) {
-      if (current.resizable && end <= current.maxByteLength) {
-        // grow in place, at least 1 MB at a time
-        current.resize(Math.min(current.maxByteLength, Math.max(end, current.byteLength + (1 << 20))));
+      if (current.resizable && end <= current.maxByteLength!) {
+        // grow in place, at least 1 MB at a time (resizable buffers always have resize / maxByteLength)
+        current.resize!(Math.min(current.maxByteLength!, Math.max(end, current.byteLength + (1 << 20))));
       } else {
-        const next: any = allocBuffer(end, end * 2 + 67108864);
+        const next: MaybeResizable = allocBuffer(end, end * 2 + 67108864);
         new Uint8Array(next, 0, offset).set(new Uint8Array(this.buf, 0, offset));
         if (next.byteLength < end) next.resize?.(end);
         this.buf = next;

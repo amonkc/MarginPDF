@@ -36,7 +36,7 @@ const menuOpen = (): boolean => !!current;
 function openMenu(clientX: number, clientY: number, items: MenuItem[], returnFocus?: HTMLElement | null): void {
   closeMenu();
   const focusables: HTMLButtonElement[] = [];
-  const menu = h("div", { class: "ctxmenu", role: "menu", tabindex: "-1" }, ...items.map((item: any) => {
+  const menu = h("div", { class: "ctxmenu", role: "menu", tabindex: "-1" }, ...items.map((item) => {
     if (item === "sep") return h("div", { class: "ctx-sep", role: "separator" });
     if ("heading" in item) return h("div", { class: "ctx-head", text: item.heading });
     if ("swatches" in item) return h("div", { class: "ctx-swatches", role: "group", "aria-label": item.label }, h("span", { class: "ctx-label", text: item.label }), h("span", { class: "ctx-sw" }, ...item.swatches.map((swatch: MenuSwatch, index: number) => {

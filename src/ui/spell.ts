@@ -1,18 +1,25 @@
 import { loadAsset } from '../engine/assets';
 import { unionRect } from '../engine/pdfium';
 import { toast, icon, h } from './dom';
+import type { ToastHandle } from './dom';
 import { replaceAt } from './replace';
 import { default as Zc } from 'nspell';
-import type { Rect } from '../engine/types';
+import type { WordHit } from '../engine/pdfium';
 import type { App } from '../app';
+import type { Viewer } from './viewer';
 
-/** A word found on a page by Doc.pageWords. */
-type PageWord = { word: string; rects: Rect[]; context: string };
-/** A possible misspelling. */
-type Issue = PageWord & { page: number };
+/** A possible misspelling: a word found by Doc.pageWords, and its page. */
+type Issue = WordHit & { page: number };
+/** A loaded nspell instance. */
+type Speller = ReturnType<typeof Zc>;
+
+/** Words are checked with typographic apostrophes as plain ones ("don’t" → "don't"). */
+const normalizeWord = (word: string): string => word.replace(/’/g, "'");
+/** Whether the (normalised) word is correct as written or in lower case. */
+const isCorrect = (speller: Speller, normalized: string): boolean => speller.correct(normalized) || speller.correct(normalized.toLowerCase());
 
 /** The loaded English dictionary (shared; reset on failure so the next open retries). */
-let dictPromise: Promise<any> | null = null;
+let dictPromise: Promise<Speller> | null = null;
 /** localStorage key of the words the user added to the dictionary. */
 const USER_WORDS_KEY = "margin.spell.words";
 const loadUserWords = (): string[] => {
@@ -23,15 +30,17 @@ const loadUserWords = (): string[] => {
   }
 };
 /** Loads the Hunspell en dictionary into nspell, plus the user's own words. */
-function loadDictionary(): Promise<any> {
-  dictPromise ??= Promise.all([loadAsset("dict/en.aff"), loadAsset("dict/en.dic")]).then(([aff, dic]) => {
-    const decoder = new TextDecoder(), speller = Zc({ aff: decoder.decode(aff), dic: decoder.decode(dic) });
-    for (const word of loadUserWords()) speller.add(word);
-    return speller;
-  });
-  dictPromise.catch(() => {
-    dictPromise = null;
-  });
+function loadDictionary(): Promise<Speller> {
+  if (!dictPromise) {
+    dictPromise = Promise.all([loadAsset("dict/en.aff"), loadAsset("dict/en.dic")]).then(([aff, dic]) => {
+      const decoder = new TextDecoder(), speller = Zc({ aff: decoder.decode(aff), dic: decoder.decode(dic) });
+      for (const word of loadUserWords()) speller.add(word);
+      return speller;
+    });
+    dictPromise.catch(() => {
+      dictPromise = null;
+    });
+  }
   return dictPromise;
 }
 
@@ -39,7 +48,7 @@ function loadDictionary(): Promise<any> {
 class Spelling {
   app: App;
   /** The viewer. */
-  v: any;
+  v: Viewer;
   el: HTMLElement | null = null;
   issues: Issue[] = [];
   /** Index of the issue shown. */
@@ -47,7 +56,7 @@ class Spelling {
   /** Lower-cased words ignored for this session. */
   ignored: Set<string> = new Set();
   busy = false;
-  constructor(app: App, viewer: any) {
+  constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
   }
@@ -65,18 +74,18 @@ class Spelling {
     try {
       speller = await loadDictionary();
       this.sync = speller;
-    } catch (err: any) {
-      this.status("The dictionary couldn’t be loaded: " + err.message);
+    } catch (err) {
+      this.status("The dictionary couldn’t be loaded: " + (err as Error).message);
       return;
     }
     this.busy = true;
     this.issues = [];
     this.at = 0;
     const verdicts = new Map<string, boolean>(), isMisspelt = (word: string) => {
-      const normalized = word.replace(/’/g, "'");
+      const normalized = normalizeWord(word);
       let wrong = verdicts.get(normalized);
       if (wrong == null) {
-        wrong = !(speller.correct(normalized) || speller.correct(normalized.toLowerCase()));
+        wrong = !isCorrect(speller, normalized);
         verdicts.set(normalized, wrong);
       }
       return wrong;
@@ -91,7 +100,7 @@ class Spelling {
       if (page % 4 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
       this.app.relieveMemory(page);
       try {
-        for (const w of this.app.doc.pageWords(page, Spelling.candidate) as PageWord[]) {
+        for (const w of this.app.doc.pageWords(page, Spelling.candidate)) {
           if (!this.ignored.has(w.word.toLowerCase()) && isMisspelt(w.word)) this.issues.push({ page, ...w });
         }
       } catch {
@@ -181,7 +190,7 @@ class Spelling {
     return result;
   }
   /** The loaded nspell instance, once available (for synchronous suggestions). */
-  sync: any = null;
+  sync: Speller | null = null;
   /** Ignores the current issue once. */
   skip(): void {
     this.issues.splice(this.at, 1);
@@ -214,9 +223,9 @@ class Spelling {
    * Replaces the issue's word with `replacement`, then re-checks that page and splices its new issues into
    * the list, keeping the position at the next issue after the replaced word.
    */
-  async replace(issue: Issue, replacement: string): Promise<any> {
+  async replace(issue: Issue, replacement: string): Promise<ToastHandle | void> {
     if (!await replaceAt(this.app, issue.page, unionRect(issue.rects), issue.word, replacement, { matchCase: true, wholeWord: true }).catch((err) => (toast(err.message, "err"), false))) return toast(`“${issue.word}” couldn’t be replaced here (it may be part of an image or a locked text block)`, "warn", 5e3);
-    const speller = await loadDictionary(), pageIssues = (this.app.doc.pageWords(issue.page, Spelling.candidate) as PageWord[]).filter((w) => !this.ignored.has(w.word.toLowerCase()) && !(speller.correct(w.word) || speller.correct(w.word.toLowerCase()))), others = this.issues.filter((x) => x.page !== issue.page), insertAt = others.filter((x) => x.page < issue.page).length, firstRect = issue.rects[0], before = firstRect ? pageIssues.filter((w) => w.rects[0] && (w.rects[0].t > firstRect.t + 1 || Math.abs(w.rects[0].t - firstRect.t) <= 1 && w.rects[0].l < firstRect.l)).length : 0;
+    const speller = await loadDictionary(), pageIssues = this.app.doc.pageWords(issue.page, Spelling.candidate).filter((w) => !this.ignored.has(w.word.toLowerCase()) && !isCorrect(speller, normalizeWord(w.word))), others = this.issues.filter((x) => x.page !== issue.page), insertAt = others.filter((x) => x.page < issue.page).length, firstRect = issue.rects[0], before = firstRect ? pageIssues.filter((w) => w.rects[0] && (w.rects[0].t > firstRect.t + 1 || Math.abs(w.rects[0].t - firstRect.t) <= 1 && w.rects[0].l < firstRect.l)).length : 0;
     this.issues = [...others.slice(0, insertAt), ...pageIssues.map((w) => ({ page: issue.page, ...w })), ...others.slice(insertAt)];
     this.at = Math.min(insertAt + before, Math.max(0, this.issues.length - 1));
     this.render();

@@ -1,12 +1,25 @@
-import { Blob as ol, Buffer as ll, Face as Xa, Font as Ya, Variation as cl, initHarfBuzz as hl, shape as ul } from '../vendor/harfbuzz/index.mjs';
+import { Blob as HbBlob, Buffer as HbBuffer, Face as HbFace, Font as HbFont, Variation as HbVariation, initHarfBuzz, shape as hbShape } from '../vendor/harfbuzz/index.mjs';
 import { loadAsset } from './assets';
 import { readTextMark, calloutAnchor } from './pdfium';
-import type { Matrix, Pt, RGBA, Rect } from './types';
+import type { Doc, Pdfium } from './pdfium';
+import type { FreeTextData, Matrix, Pt, RGBA, Rect } from './types';
 
-/** The open document (engine/pdfium Doc); kept loose here. */
-type PdfDoc = any;
+/** The open document. */
+type PdfDoc = Doc;
 /** The PDFium wasm wrapper (`doc.lib`). */
-type PdfLib = any;
+type PdfLib = Pdfium;
+/** A PDFium handle (FPDF_PAGEOBJECT, FPDF_FONT, …): a wasm pointer, 0 for none. */
+type Handle = number;
+/** Maps a point from glyph/text space to output coordinates, giving [x, y]. */
+type PointTransform = (x: number, y: number) => number[];
+
+/**
+ * Border width (pt) of a Margin text box whose style has a border colour but no `borderWidth`. Matches the
+ * default style the text box editor creates (src/ui/textbox.ts) and the one Doc.readFreeText falls back to.
+ */
+export const DEFAULT_FT_BORDER_WIDTH = 1;
+/** Border width a text box style actually draws with: 0 without a border colour. */
+const ftBorderWidth = (style: FreeTextData["style"]): number => style.border ? style.borderWidth ?? DEFAULT_FT_BORDER_WIDTH : 0;
 
 /**
  * A font family offered in the font menus. Either one of the PDF standard 14 families (`std` lists the
@@ -41,7 +54,7 @@ export type FontFace_ = {
 };
 
 /** A loaded face: font bytes, HarfBuzz font (bundled fonts only), units per em and ascent as a fraction of the em. */
-export type LoadedFont = { bytes: Uint8Array; hbFont?: Ya; upem: number; ascent: number; file?: string };
+export type LoadedFont = { bytes: Uint8Array; hbFont?: HbFont; upem: number; ascent: number; file?: string };
 
 /** A shaped glyph: glyph id, pen position and advance in font units. */
 export type ShapedGlyph = { gid: number; x: number; y: number; adv: number };
@@ -140,7 +153,7 @@ const fontCache = /* @__PURE__ */ new Map<string, Promise<LoadedFont>>();
 let harfbuzzReady: Promise<void> | null = null;
 /** Start HarfBuzz from its wasm bytes. Font loading waits for this. */
 function initShaper(wasmBinary: ArrayBuffer | Uint8Array): Promise<void> {
-  harfbuzzReady = hl({ wasmBinary });
+  harfbuzzReady = initHarfBuzz({ wasmBinary });
   return harfbuzzReady!;
 }
 /** Load the regular face of a family. */
@@ -166,9 +179,9 @@ function loadFace(face: FontFace_): Promise<LoadedFont> {
       } catch {
       }
       await harfbuzzReady;
-      const hbFace = new Xa(new ol(data.slice(0))), hbFont = new Ya(hbFace);
+      const hbFace = new HbFace(new HbBlob(data.slice(0))), hbFont = new HbFont(hbFace);
       if (face.wght) {
-        const variation = cl.fromString("wght=" + face.wght);
+        const variation = HbVariation.fromString("wght=" + face.wght);
         if (variation) hbFont.setVariations([variation]);
       }
       const upem = hbFace.upem;
@@ -186,12 +199,12 @@ function loadFace(face: FontFace_): Promise<LoadedFont> {
   return pending;
 }
 /** PDFium font handles per document, keyed by base font name or file. Reset when the document handle changes. */
-const pdfFontCache = /* @__PURE__ */ new WeakMap<object, { h: any; m: Map<string, any> }>();
+const pdfFontCache = /* @__PURE__ */ new WeakMap<object, { h: number; m: Map<string, Handle> }>();
 /** Load (once per document) the PDFium font object for a face: a standard font, or the TTF embedded as a CID font. */
-function pdfFontFor(doc: PdfDoc, face: FontFace_, loaded: LoadedFont): any {
+function pdfFontFor(doc: PdfDoc, face: FontFace_, loaded: LoadedFont): Handle {
   let entry = pdfFontCache.get(doc);
   if (!entry || entry.h !== doc.h) {
-    entry = { h: doc.h, m: /* @__PURE__ */ new Map() };
+    entry = { h: doc.h, m: /* @__PURE__ */ new Map<string, Handle>() };
     pdfFontCache.set(doc, entry);
   }
   const handles = entry.m, cacheKey = (face.std || face.file)!;
@@ -205,10 +218,10 @@ function pdfFontFor(doc: PdfDoc, face: FontFace_, loaded: LoadedFont): any {
 }
 /** Shape one line with HarfBuzz. Glyph positions are in font units; `width` is in ems. */
 function shapeText(font: LoadedFont, text: string): { glyphs: ShapedGlyph[]; width: number } {
-  const buffer = new ll();
+  const buffer = new HbBuffer();
   buffer.addText(text);
   buffer.guessSegmentProperties();
-  ul(font.hbFont!, buffer);
+  hbShape(font.hbFont!, buffer);
   const infos = buffer.getGlyphInfos(), positions = buffer.getGlyphPositions(), glyphs: ShapedGlyph[] = [];
   let penX = 0;
   for (let i = 0; i < infos.length; i++) {
@@ -267,7 +280,7 @@ async function writeText(doc: PdfDoc, pageIndex: number, opts: WriteTextOptions)
       if (asOutlines) {
         const scale = size / font.upem;
         for (const glyph of shapeText(font, line).glyphs) {
-          const path = glyphPathObject(lib, font.hbFont, glyph.gid, (gx, gy) => {
+          const path = glyphPathObject(lib, font.hbFont!, glyph.gid, (gx, gy) => {
             let x = (glyph.x + gx) * scale;
             const y = (glyph.y + gy) * scale;
             x += skew * y;
@@ -319,7 +332,7 @@ async function writeText(doc: PdfDoc, pageIndex: number, opts: WriteTextOptions)
   return { fontKey: def.key, fellBack };
 }
 /** Add a content mark with string parameters to a page object. */
-function addMark(doc: PdfDoc, obj: any, name: string, params: Record<string, string>): void {
+function addMark(doc: PdfDoc, obj: Handle, name: string, params: Record<string, string>): void {
   const mark = doc.P.FPDFPageObj_AddMark(obj, name);
   for (const [key, value] of Object.entries(params)) doc.P.FPDFPageObjMark_SetStringParam(doc.h, obj, mark, key, value);
 }
@@ -327,8 +340,9 @@ function addMark(doc: PdfDoc, obj: any, name: string, params: Record<string, str
  * Feed a glyph outline (font units) to `sink`, mapping points through `transform`. Quadratic segments are
  * converted to cubics. Returns false when the glyph has no outline data.
  */
-function drawGlyph(hbFont: any, gid: number, transform: (x: number, y: number) => number[], sink: PathSink): boolean {
+function drawGlyph(hbFont: HbFont, gid: number, transform: PointTransform, sink: PathSink): boolean {
   const svgPath = hbFont.glyphToPath(gid);
+  const point = (x: number, y: number) => transform(x, y) as [number, number];
   if (!svgPath) return false;
   const tokens: string[] = svgPath.match(/[MLQCZ]|-?\d*\.?\d+(?:e[-+]?\d+)?/g) || [];
   let pos = 0, curX = 0, curY = 0;
@@ -338,19 +352,19 @@ function drawGlyph(hbFont: any, gid: number, transform: (x: number, y: number) =
     if (cmd === "M") {
       curX = num();
       curY = num();
-      sink.move(...(transform(curX, curY) as [number, number]));
+      sink.move(...point(curX, curY));
     } else if (cmd === "L") {
       curX = num();
       curY = num();
-      sink.line(...(transform(curX, curY) as [number, number]));
+      sink.line(...point(curX, curY));
     } else if (cmd === "Q") {
       const qx = num(), qy = num(), x = num(), y = num();
-      (sink.curve as any)(...transform(curX + 2 / 3 * (qx - curX), curY + 2 / 3 * (qy - curY)), ...transform(x + 2 / 3 * (qx - x), y + 2 / 3 * (qy - y)), ...transform(x, y));
+      sink.curve(...point(curX + 2 / 3 * (qx - curX), curY + 2 / 3 * (qy - curY)), ...point(x + 2 / 3 * (qx - x), y + 2 / 3 * (qy - y)), ...point(x, y));
       curX = x;
       curY = y;
     } else if (cmd === "C") {
       const v = [num(), num(), num(), num(), num(), num()];
-      (sink.curve as any)(...transform(v[0], v[1]), ...transform(v[2], v[3]), ...transform(v[4], v[5]));
+      sink.curve(...point(v[0], v[1]), ...point(v[2], v[3]), ...point(v[4], v[5]));
       curX = v[4];
       curY = v[5];
     } else if (cmd === "Z") sink.close();
@@ -358,9 +372,9 @@ function drawGlyph(hbFont: any, gid: number, transform: (x: number, y: number) =
   return true;
 }
 /** Build a PDFium path object from a glyph outline; returns 0 for an empty glyph. Not inserted into a page. */
-function glyphPathObject(lib: PdfLib, hbFont: any, gid: number, transform: (x: number, y: number) => number[]): any {
+function glyphPathObject(lib: PdfLib, hbFont: HbFont, gid: number, transform: PointTransform): Handle {
   const api = lib.P;
-  let path = 0;
+  let path: Handle = 0;
   drawGlyph(hbFont, gid, transform, {
     move: (x, y) => {
       if (path) api.FPDFPath_MoveTo(path, x, y);
@@ -426,7 +440,8 @@ function replaceObjectText(doc: PdfDoc, pageIndex: number, objIndex: number, tex
  * honouring the field's background, border, font size and multiline flag. Auto-sizes single-line fields.
  */
 async function drawFieldAppearance(doc: PdfDoc, pageIndex: number, annotIndex: number, value: string, fontKey = "sarabun"): Promise<void> {
-  const look = doc.fieldLook(pageIndex, annotIndex), rect = look.rect, width = rect.r - rect.l, height = rect.t - rect.b, borderWidth = look.borderWidth || 0, font = await loadFont(fontByKey(fontKey)), pad = 2 + borderWidth, lines = look.multiline ? value.replace(/\r/g, "").split(`
+  // outlines need a bundled (HarfBuzz) font: standard fonts and non-Thai fonts for Thai text are mapped by outlineFont
+  const look = doc.fieldLook(pageIndex, annotIndex), rect = look.rect, width = rect.r - rect.l, height = rect.t - rect.b, borderWidth = look.borderWidth || 0, font = await loadFont(outlineFont(fontKey, value)), pad = 2 + borderWidth, lines = look.multiline ? value.replace(/\r/g, "").split(`
 `) : [value.replace(/[\r\n]+/g, " ")];
   let size = look.size || (look.multiline ? 11 : Math.max(6, Math.min(14, height * 0.62)));
   if (!look.multiline && !look.size) {
@@ -442,7 +457,7 @@ async function drawFieldAppearance(doc: PdfDoc, pageIndex: number, annotIndex: n
   for (const line of lines) {
     const { glyphs } = shapeText(font, line);
     for (const glyph of glyphs) {
-      if (drawGlyph(font.hbFont, glyph.gid, (x, y) => [rect.l + pad + (glyph.x + x) * scale, baseline + (glyph.y + y) * scale], { move: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} m`), line: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} l`), curve: (x1, y1, x2, y2, x3, y3) => ops.push(`${fmt(x1)} ${fmt(y1)} ${fmt(x2)} ${fmt(y2)} ${fmt(x3)} ${fmt(y3)} c`), close: () => ops.push("h") })) ops.push("f");
+      if (drawGlyph(font.hbFont!, glyph.gid, (x, y) => [rect.l + pad + (glyph.x + x) * scale, baseline + (glyph.y + y) * scale], { move: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} m`), line: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} l`), curve: (x1, y1, x2, y2, x3, y3) => ops.push(`${fmt(x1)} ${fmt(y1)} ${fmt(x2)} ${fmt(y2)} ${fmt(x3)} ${fmt(y3)} c`), close: () => ops.push("h") })) ops.push("f");
     }
     baseline -= lineStep;
   }
@@ -544,23 +559,24 @@ function wrapLines(font: LoadedFont, text: string, size: number, maxWidth: numbe
 /** Inner padding of a text box (pt), inside the border. */
 const TEXTBOX_PADDING = 4;
 /** Height a text box needs to show all of its wrapped text. */
-async function freeTextHeight(data: any): Promise<number> {
-  const font = await loadFont(outlineFont(data.style.fontKey, data.text)), border = data.style.border ? data.style.borderWidth : 0;
+async function freeTextHeight(data: FreeTextData): Promise<number> {
+  const font = await loadFont(outlineFont(data.style.fontKey, data.text)), border = ftBorderWidth(data.style);
   return wrapLines(font, data.text || " ", data.style.size, data.box.r - data.box.l - 2 * (TEXTBOX_PADDING + border)).length * data.style.size * 1.3 + 2 * (TEXTBOX_PADDING + border);
 }
 /**
  * Render a Margin text box / callout into its annotation appearance stream: optional callout line with an
  * arrowhead, fill, border, and the wrapped text as glyph outlines. Then stores it via doc.writeFreeText.
  */
-async function renderFreeText(doc: PdfDoc, pageIndex: number, annotIndex: number, data: any): Promise<void> {
-  const font = await loadFont(outlineFont(data.style.fontKey, data.text)), { box, style } = data, border = style.border ? style.borderWidth : 0, fmt = (v: number) => (Math.round(v * 1e3) / 1e3).toString(), rgbOps = (c: number[]) => c.slice(0, 3).map((v) => fmt(v / 255)).join(" "), width = box.r - box.l, height = box.t - box.b, ops = ["q"];
+async function renderFreeText(doc: PdfDoc, pageIndex: number, annotIndex: number, data: FreeTextData): Promise<void> {
+  const font = await loadFont(outlineFont(data.style.fontKey, data.text)), { box, style } = data, border = ftBorderWidth(style), fmt = (v: number) => (Math.round(v * 1e3) / 1e3).toString(), rgbOps = (c: number[]) => c.slice(0, 3).map((v) => fmt(v / 255)).join(" "), width = box.r - box.l, height = box.t - box.b, ops = ["q"];
   let bounds: Rect = { ...box };
-  if (data.tip && style.border) {
-    const anchor = calloutAnchor(box, data.tip);
-    if (Math.hypot(anchor.x - data.tip.x, anchor.y - data.tip.y) > 2) {
-      const lineWidth = Math.max(1, border), headLength = Math.max(7, lineWidth * 4.5), headAngle = 28 * Math.PI / 180, dx = data.tip.x - anchor.x, dy = data.tip.y - anchor.y, length = Math.hypot(dx, dy), ux = dx / length, uy = dy / length, headPoint = (side: number) => ({ x: data.tip.x - headLength * (ux * Math.cos(headAngle) - uy * Math.sin(headAngle) * side), y: data.tip.y - headLength * (uy * Math.cos(headAngle) + ux * Math.sin(headAngle) * side) }), head1 = headPoint(1), head2 = headPoint(-1);
-      ops.push(`${rgbOps(style.border)} RG ${fmt(lineWidth)} w 1 J 1 j ${fmt(anchor.x)} ${fmt(anchor.y)} m ${fmt(data.tip.x)} ${fmt(data.tip.y)} l S ${fmt(head1.x)} ${fmt(head1.y)} m ${fmt(data.tip.x)} ${fmt(data.tip.y)} l ${fmt(head2.x)} ${fmt(head2.y)} l S`);
-      const xs = [box.l, box.r, data.tip.x, head1.x, head2.x], ys = [box.b, box.t, data.tip.y, head1.y, head2.y];
+  const tip = data.tip;
+  if (tip && style.border) {
+    const anchor = calloutAnchor(box, tip);
+    if (Math.hypot(anchor.x - tip.x, anchor.y - tip.y) > 2) {
+      const lineWidth = Math.max(1, border), headLength = Math.max(7, lineWidth * 4.5), headAngle = 28 * Math.PI / 180, dx = tip.x - anchor.x, dy = tip.y - anchor.y, length = Math.hypot(dx, dy), ux = dx / length, uy = dy / length, headPoint = (side: number) => ({ x: tip.x - headLength * (ux * Math.cos(headAngle) - uy * Math.sin(headAngle) * side), y: tip.y - headLength * (uy * Math.cos(headAngle) + ux * Math.sin(headAngle) * side) }), head1 = headPoint(1), head2 = headPoint(-1);
+      ops.push(`${rgbOps(style.border)} RG ${fmt(lineWidth)} w 1 J 1 j ${fmt(anchor.x)} ${fmt(anchor.y)} m ${fmt(tip.x)} ${fmt(tip.y)} l S ${fmt(head1.x)} ${fmt(head1.y)} m ${fmt(tip.x)} ${fmt(tip.y)} l ${fmt(head2.x)} ${fmt(head2.y)} l S`);
+      const xs = [box.l, box.r, tip.x, head1.x, head2.x], ys = [box.b, box.t, tip.y, head1.y, head2.y];
       bounds = { l: Math.min(...xs) - lineWidth, r: Math.max(...xs) + lineWidth, b: Math.min(...ys) - lineWidth, t: Math.max(...ys) + lineWidth };
     }
   }
@@ -572,7 +588,7 @@ async function renderFreeText(doc: PdfDoc, pageIndex: number, annotIndex: number
   for (const line of wrapLines(font, data.text, size, width - 2 * (TEXTBOX_PADDING + border))) {
     const { glyphs } = shapeText(font, line);
     for (const glyph of glyphs) {
-      if (drawGlyph(font.hbFont, glyph.gid, (x, y) => [box.l + border + TEXTBOX_PADDING + (glyph.x + x) * scale, baseline + (glyph.y + y) * scale], { move: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} m`), line: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} l`), curve: (x1, y1, x2, y2, x3, y3) => ops.push(`${fmt(x1)} ${fmt(y1)} ${fmt(x2)} ${fmt(y2)} ${fmt(x3)} ${fmt(y3)} c`), close: () => ops.push("h") })) ops.push("f");
+      if (drawGlyph(font.hbFont!, glyph.gid, (x, y) => [box.l + border + TEXTBOX_PADDING + (glyph.x + x) * scale, baseline + (glyph.y + y) * scale], { move: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} m`), line: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} l`), curve: (x1, y1, x2, y2, x3, y3) => ops.push(`${fmt(x1)} ${fmt(y1)} ${fmt(x2)} ${fmt(y2)} ${fmt(x3)} ${fmt(y3)} c`), close: () => ops.push("h") })) ops.push("f");
     }
     baseline -= lineStep;
   }
@@ -597,7 +613,7 @@ async function stampAppearance(stamp: { label: string; sub?: string; color: RGBA
   const drawLine = (font: LoadedFont, shaped: { glyphs: ShapedGlyph[]; width: number }, size: number, baseline: number) => {
     const scale = size / font.upem, startX = center.x - shaped.width * size / 2;
     for (const glyph of shaped.glyphs) {
-      if (drawGlyph(font.hbFont, glyph.gid, (x, y) => [startX + (glyph.x + x) * scale, baseline + (glyph.y + y) * scale], { move: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} m`), line: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} l`), curve: (x1, y1, x2, y2, x3, y3) => ops.push(`${fmt(x1)} ${fmt(y1)} ${fmt(x2)} ${fmt(y2)} ${fmt(x3)} ${fmt(y3)} c`), close: () => ops.push("h") })) ops.push("f");
+      if (drawGlyph(font.hbFont!, glyph.gid, (x, y) => [startX + (glyph.x + x) * scale, baseline + (glyph.y + y) * scale], { move: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} m`), line: (x, y) => ops.push(`${fmt(x)} ${fmt(y)} l`), curve: (x1, y1, x2, y2, x3, y3) => ops.push(`${fmt(x1)} ${fmt(y1)} ${fmt(x2)} ${fmt(y2)} ${fmt(x3)} ${fmt(y3)} c`), close: () => ops.push("h") })) ops.push("f");
     }
   }, top = rect.t - padY;
   drawLine(boldFont, labelShape, labelSize, top - labelSize * 0.82);
@@ -610,10 +626,10 @@ async function stampAppearance(stamp: { label: string; sub?: string; color: RGBA
  * Build a single path object with `text` as glyph outlines, centred on (0, 0) (vertically around the
  * x-height) and mapped through `transform`. Throws when there is nothing to draw. Not inserted into a page.
  */
-async function textPathObject(doc: PdfDoc, text: string, fontKey: string, size: number, transform: (x: number, y: number) => number[]): Promise<any> {
+async function textPathObject(doc: PdfDoc, text: string, fontKey: string, size: number, transform: PointTransform): Promise<Handle> {
   const font = await loadFont(outlineFont(fontKey, text)), shaped = shapeText(font, text), scale = size / font.upem, x0 = -(shaped.width * size) / 2, y0 = -size * 0.35, api = doc.P;
-  let path = 0;
-  for (const glyph of shaped.glyphs) drawGlyph(font.hbFont, glyph.gid, (x, y) => transform(x0 + (glyph.x + x) * scale, y0 + (glyph.y + y) * scale), {
+  let path: Handle = 0;
+  for (const glyph of shaped.glyphs) drawGlyph(font.hbFont!, glyph.gid, (x, y) => transform(x0 + (glyph.x + x) * scale, y0 + (glyph.y + y) * scale), {
     move: (x, y) => {
       if (path) api.FPDFPath_MoveTo(path, x, y);
       else path = api.FPDFPageObj_CreateNewPath(x, y);
@@ -625,11 +641,11 @@ async function textPathObject(doc: PdfDoc, text: string, fontKey: string, size: 
     }
   });
   if (!path) throw new Error("Nothing to draw");
-  api.FPDFPath_SetDrawMode(path, 1, 0);
+  api.FPDFPath_SetDrawMode(path, 1, false);
   return path;
 }
 /** Mark a page object as part of Margin drawing `id` and insert it at `index` (or on top when index < 0). */
-function insertMarkedObject(doc: PdfDoc, pageIndex: number, obj: any, id: string, index: number): void {
+function insertMarkedObject(doc: PdfDoc, pageIndex: number, obj: Handle, id: string, index: number): void {
   const api = doc.P;
   doc.withPage(pageIndex, (page) => {
     addMark(doc, obj, "MarginGlyph", { id });
@@ -639,7 +655,7 @@ function insertMarkedObject(doc: PdfDoc, pageIndex: number, obj: any, id: string
   });
 }
 /** Create (but do not insert) an image object from RGBA pixels with `matrix`. */
-function createImageObject(doc: PdfDoc, rgba: ArrayLike<number>, w: number, h: number, matrix: Matrix | number[]): any {
+function createImageObject(doc: PdfDoc, rgba: ArrayLike<number>, w: number, h: number, matrix: Matrix | number[]): Handle {
   const api = doc.P, wasm = doc.lib.M, bitmap = api.FPDFBitmap_Create(w, h, 1), buffer = api.FPDFBitmap_GetBuffer(bitmap), stride = api.FPDFBitmap_GetStride(bitmap);
   // RGBA → PDFium's BGRA
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {

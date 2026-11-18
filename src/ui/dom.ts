@@ -11,7 +11,7 @@ const $$ = <T extends Element = HTMLElement>(selector: string, root: ParentNode 
   [...root.querySelectorAll(selector)] as T[];
 
 /** Attribute bag for {@link h}: `class`, `style` (object), `on*` listeners, `text`, DOM properties or plain attributes. */
-export type Attrs = Record<string, any>;
+export type Attrs = Record<string, unknown>;
 /** A child accepted by {@link h}; null/undefined/false are skipped. */
 export type Child = Node | string | null | undefined | false;
 
@@ -27,11 +27,11 @@ function h(tag: string, attrs: Attrs = {}, ...children: Child[]): HTMLElement {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
     if (value == null || value === false) continue;
-    if (key === "class") el.className = value;
+    if (key === "class") el.className = value as string;
     else if (key === "style" && typeof value == "object") Object.assign(el.style, value);
-    else if (key.startsWith("on") && typeof value == "function") el.addEventListener(key.slice(2), value);
-    else if (key === "text") el.textContent = value;
-    else if (key in el && typeof value != "string") (el as any)[key] = value;
+    else if (key.startsWith("on") && typeof value == "function") el.addEventListener(key.slice(2), value as EventListener);
+    else if (key === "text") el.textContent = value as string;
+    else if (key in el && typeof value != "string") (el as unknown as Record<string, unknown>)[key] = value;
     else el.setAttribute(key, value === true ? "" : String(value));
   }
   for (const child of children) if (child != null && child !== false) el.append(child);

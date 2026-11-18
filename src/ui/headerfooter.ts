@@ -1,6 +1,9 @@
 import { writeText, insertMarkedImage, removeById, measureWithFont, FONTS } from '../engine/text';
 import { toast, icon, modal, h } from './dom';
+import type { Child, ToastHandle } from './dom';
 import type { RGBA } from '../engine/types';
+import type { Doc } from '../engine/pdfium';
+import type { App } from '../app';
 
 
 /** The six header/footer positions: h/f (header, footer) + l/c/r (left, centre, right). */
@@ -54,7 +57,7 @@ async function rasterizeImage(url: string, heightPt: number): Promise<HfImage> {
 }
 
 /** Removes every header/footer block from the given pages. */
-function removeHeaderFooter(app: any, pages: number[]): void {
+function removeHeaderFooter(app: App, pages: number[]): void {
   for (const page of pages) for (const slot of HF_SLOTS) removeById(app.doc, page, "hf-" + slot);
 }
 
@@ -94,7 +97,7 @@ async function loadHfImages(settings: HeaderFooterSettings): Promise<Partial<Rec
  * and mapped to PDF space with the inverse page transform. Each position is [image][gap][text], aligned left,
  * centred or right within the margin; image and text are centred on a band of max(image height, font size).
  */
-async function drawHeaderFooter(doc: any, page: number, pageNo: number, total: number, fileName: string, settings: HeaderFooterSettings, images: Partial<Record<Slot, HfImage>>): Promise<void> {
+async function drawHeaderFooter(doc: Doc, page: number, pageNo: number, total: number, fileName: string, settings: HeaderFooterSettings, images: Partial<Record<Slot, HfImage>>): Promise<void> {
   const values = { page: String(pageNo), pages: String(total), date: todayText(), file: fileName }, { w: pageW, h: pageH } = doc.pageSize(page), inv = doc.transform(page, pageW, pageH).invert(), [ox, oy] = inv.apply(0, 0), [xx, xy] = inv.apply(1, 0), [yx, yy] = inv.apply(0, 1), ax = xx - ox, ay = xy - oy, bx = -(yx - ox), by = -(yy - oy);
   for (const slot of HF_SLOTS) {
     const text = expandTokens(settings.text[slot] || "", values, settings.thaiDigits).trim(), image = images[slot];
@@ -112,10 +115,10 @@ async function drawHeaderFooter(doc: any, page: number, pageNo: number, total: n
 }
 
 /** File name without the .pdf extension, for the {file} token. */
-const baseFileName = (app: any): string => app.fileName.replace(/\.pdf$/i, "");
+const baseFileName = (app: App): string => app.fileName.replace(/\.pdf$/i, "");
 
 /** Replaces the header & footer on all pages with the given settings. Returns the number of pages it was added to. */
-async function applyHeaderFooter(app: any, settings: HeaderFooterSettings): Promise<number> {
+async function applyHeaderFooter(app: App, settings: HeaderFooterSettings): Promise<number> {
   const doc = app.doc, pageCount = doc.pageCount, { pages, total } = hfPages(pageCount, settings);
   if (!pages.length) throw new Error("That page range is empty");
   const images = await loadHfImages(settings);
@@ -125,8 +128,8 @@ async function applyHeaderFooter(app: any, settings: HeaderFooterSettings): Prom
 }
 
 /** Renders a one-page copy of `page` with the header & footer applied, `widthPx` CSS pixels wide. */
-async function renderPreview(app: any, page: number, settings: HeaderFooterSettings, widthPx: number): Promise<{ img: ImageData; w: number; h: number; scale: number; inRange: boolean }> {
-  const { pages, first, total } = hfPages(app.doc.pageCount, settings), copy = app.lib.create();
+async function renderPreview(app: App, page: number, settings: HeaderFooterSettings, widthPx: number): Promise<{ img: ImageData; w: number; h: number; scale: number; inRange: boolean }> {
+  const { pages, first, total } = hfPages(app.doc.pageCount, settings), copy: Doc = app.lib.create();
   try {
     copy.importIndices(app.doc, [page], 0);
     for (const slot of HF_SLOTS) removeById(copy, 0, "hf-" + slot);
@@ -144,7 +147,7 @@ async function renderPreview(app: any, page: number, settings: HeaderFooterSetti
  * numbering and margin, and a preview of the top and bottom strips of one page. `saveSettings` receives the
  * settings when they are applied.
  */
-async function headerFooterDialog(app: any, initial: HeaderFooterSettings, saveSettings: (settings: HeaderFooterSettings) => void): Promise<any> {
+async function headerFooterDialog(app: App, initial: HeaderFooterSettings, saveSettings: (settings: HeaderFooterSettings) => void): Promise<ToastHandle | void> {
   const s: HeaderFooterSettings = JSON.parse(JSON.stringify(initial));
   s.images ||= {};
   s.imageHeight ||= 24;
@@ -201,7 +204,7 @@ async function headerFooterDialog(app: any, initial: HeaderFooterSettings, saveS
     s.color = color;
     (ev.currentTarget as HTMLElement).parentElement!.querySelectorAll(".sw").forEach((sw) => sw.classList.remove("on"));
     (ev.currentTarget as HTMLElement).classList.add("on");
-  } }), row = (label: string, ...controls: any[]) => h("div", { class: "hf-row" }, h("span", { class: "rlabel", text: label }), h("div", { class: "hf-ctrl" }, ...controls)), body = h("div", { class: "hf" }, h("div", { class: "hf-grid" }, h("span", { class: "rlabel", text: "Header" }), slotEditor("hl", "Left"), slotEditor("hc", "Center"), slotEditor("hr", "Right"), h("span", { class: "rlabel", text: "Footer" }), slotEditor("fl", "Left"), slotEditor("fc", "Center"), slotEditor("fr", "Right")), h("div", { class: "hf-tokens" }, h("span", { class: "hint", text: "Insert:" }), tokenChip("{page}", "Page number"), tokenChip("{pages}", "Page count"), tokenChip("{date}", "Date"), tokenChip("{file}", "File name")), row("Text", fontSelect, h("span", { class: "withunit" }, sizeInput, h("span", { class: "unit", text: "pt" })), h("div", { class: "swatches" }, ...([[90, 94, 104, 255], [24, 26, 33, 255], [214, 69, 52, 255], [37, 99, 235, 255]] as RGBA[]).map(swatch))), row("Pages", rangeSelect, fromTo), row("Numbering", h("span", { class: "withunit" }, h("span", { class: "unit", text: "Start at" }), startInput), h("label", { class: "hf-check" }, thaiBox, "Thai digits (๑ ๒ ๓)")), row("Images", h("span", { class: "withunit" }, h("span", { class: "unit", text: "Height" }), imageHeightInput, h("span", { class: "unit", text: "pt" })), h("span", { class: "hint", text: "Use the image button beside a position. Images sit before that position’s text." })), row("Margin", h("span", { class: "withunit" }, marginInput, h("span", { class: "unit", text: "pt from the edge" })))), readForm = () => {
+  } }), row = (label: string, ...controls: Child[]) => h("div", { class: "hf-row" }, h("span", { class: "rlabel", text: label }), h("div", { class: "hf-ctrl" }, ...controls)), body = h("div", { class: "hf" }, h("div", { class: "hf-grid" }, h("span", { class: "rlabel", text: "Header" }), slotEditor("hl", "Left"), slotEditor("hc", "Center"), slotEditor("hr", "Right"), h("span", { class: "rlabel", text: "Footer" }), slotEditor("fl", "Left"), slotEditor("fc", "Center"), slotEditor("fr", "Right")), h("div", { class: "hf-tokens" }, h("span", { class: "hint", text: "Insert:" }), tokenChip("{page}", "Page number"), tokenChip("{pages}", "Page count"), tokenChip("{date}", "Date"), tokenChip("{file}", "File name")), row("Text", fontSelect, h("span", { class: "withunit" }, sizeInput, h("span", { class: "unit", text: "pt" })), h("div", { class: "swatches" }, ...([[90, 94, 104, 255], [24, 26, 33, 255], [214, 69, 52, 255], [37, 99, 235, 255]] as RGBA[]).map(swatch))), row("Pages", rangeSelect, fromTo), row("Numbering", h("span", { class: "withunit" }, h("span", { class: "unit", text: "Start at" }), startInput), h("label", { class: "hf-check" }, thaiBox, "Thai digits (๑ ๒ ๓)")), row("Images", h("span", { class: "withunit" }, h("span", { class: "unit", text: "Height" }), imageHeightInput, h("span", { class: "unit", text: "pt" })), h("span", { class: "hint", text: "Use the image button beside a position. Images sit before that position’s text." })), row("Margin", h("span", { class: "withunit" }, marginInput, h("span", { class: "unit", text: "pt from the edge" })))), readForm = () => {
     for (const slot of HF_SLOTS) s.text[slot] = textInputs[slot].value;
     s.fontKey = fontSelect.value;
     s.size = Math.max(5, Math.min(36, +sizeInput.value || 9));
@@ -241,8 +244,8 @@ async function headerFooterDialog(app: any, initial: HeaderFooterSettings, saveS
         strip.style.aspectRatio = `${r.img.width} / ${stripPx}`;
         strip.getContext("2d")!.drawImage(full, 0, sy, r.img.width, stripPx, 0, 0, r.img.width, stripPx);
       }
-    } catch (err: any) {
-      if (gen === generation) previewNote.textContent = err.message || "Preview unavailable";
+    } catch (err) {
+      if (gen === generation) previewNote.textContent = (err as Error).message || "Preview unavailable";
     }
   }, schedulePreview = () => {
     clearTimeout(timer);
@@ -255,13 +258,18 @@ async function headerFooterDialog(app: any, initial: HeaderFooterSettings, saveS
   });
   onImageChange = schedulePreview;
   const choice = await modal({ title: "Header & footer", onOpen: () => requestAnimationFrame(() => updatePreview()), body, actions: [{ id: "remove", label: "Remove from all pages" }, { id: "cancel", label: "Cancel" }, { id: "apply", label: "Apply", primary: true }] });
-  if (choice === "remove") {
-    await app.mutate("Remove header & footer", { pages: "all" }, () => removeHeaderFooter(app, [...Array(app.doc.pageCount).keys()])).catch((err: any) => toast(err.message, "err"));
-    toast("Removed header and footer");
-    return;
-  }
+  // Drop any scheduled or in-flight preview on every way out of the dialog.
   clearTimeout(timer);
   generation++;
+  if (choice === "remove") {
+    try {
+      await app.mutate("Remove header & footer", { pages: "all" }, () => removeHeaderFooter(app, [...Array(app.doc.pageCount).keys()]));
+      toast("Removed header and footer");
+    } catch (err) {
+      toast((err as Error).message, "err");
+    }
+    return;
+  }
   if (choice === "apply") {
     readForm();
     saveSettings(s);
@@ -272,8 +280,8 @@ async function headerFooterDialog(app: any, initial: HeaderFooterSettings, saveS
         count = await applyHeaderFooter(app, s);
       });
       toast(`Header and footer added to ${count} page${count === 1 ? "" : "s"}`);
-    } catch (err: any) {
-      toast(err.message, "err");
+    } catch (err) {
+      toast((err as Error).message, "err");
     }
   }
 }

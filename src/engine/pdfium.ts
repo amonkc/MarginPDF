@@ -1,4 +1,5 @@
 import { init as ji } from '@embedpdf/pdfium';
+import type { WrappedPdfiumModule } from '@embedpdf/pdfium';
 import type {
   AnnotInfo,
   AnnotStyle,
@@ -223,22 +224,44 @@ function dropDanglingParents(bytes: Uint8Array): Uint8Array {
 // The PDFium library wrapper
 // ---------------------------------------------------------------------------------------------
 
+/** The cwrapped PDFium API as typed by @embedpdf/pdfium (BOOL-returning C functions declared "number" return numbers). */
+type PdfiumApi = WrappedPdfiumModule;
+/** Heap value types Margin reads and writes. */
+type HeapType = "i32" | "float" | "double";
+/**
+ * The emscripten module behind the API: the members Margin uses. @embedpdf/pdfium types these via
+ * `typeof addFunction` etc. from @types/emscripten, which isn't installed here (so they would be `any`, and
+ * HEAPU8 would be missing); this spells out the runtime signatures instead.
+ */
+interface PdfiumRuntime {
+  HEAPU8: Uint8Array;
+  wasmExports: { malloc(size: number): number; free(ptr: number): void };
+  /** Add a JS function to the wasm table (signature like "iiii"); returns its table index. */
+  addFunction(fn: (...args: number[]) => number, signature: string): number;
+  removeFunction(index: number): void;
+  getValue(ptr: number, type: HeapType): number;
+  setValue(ptr: number, value: number, type: HeapType): void;
+  UTF16ToString(ptr: number): string;
+  UTF8ToString(ptr: number): string;
+  stringToUTF16(s: string, ptr: number, maxBytes: number): number;
+}
+
 /** Bytes handed to PDFium through a custom FPDF_FILEACCESS: the file, the struct and its read callback. */
 export type PdfSource = { bytes: Uint8Array; fa: number; cb: number };
 
 /** The loaded PDFium wasm module plus wasm-heap helpers. */
 class Pdfium {
   /** The cwrapped PDFium API. */
-  P: any;
+  P: PdfiumApi;
   /** The emscripten module (heap, malloc, addFunction …). */
-  M: any;
-  constructor(api: any) {
+  M: PdfiumRuntime;
+  constructor(api: PdfiumApi) {
     this.P = api;
-    this.M = api.pdfium;
+    this.M = api.pdfium as unknown as PdfiumRuntime;
     api.PDFiumExt_Init();
   }
   static async load(wasmBinary: ArrayBuffer | Uint8Array): Promise<Pdfium> {
-    const api = await ji({ wasmBinary } as any);
+    const api = await ji({ wasmBinary } as Parameters<typeof ji>[0]);
     return new Pdfium(api);
   }
   /** malloc at least one byte. */
@@ -337,7 +360,7 @@ class Pdfium {
 }
 
 /** Whether an error is the wasm engine aborting / running out of memory (the module is then unusable). */
-const isEngineAbort = (err: any): boolean => /Aborted|out of memory|Cannot enlarge memory/i.test(String(err?.message ?? err));
+const isEngineAbort = (err: unknown): boolean => /Aborted|out of memory|Cannot enlarge memory/i.test(String((err as { message?: unknown } | null | undefined)?.message ?? err));
 const ENGINE_FULL = "The PDF engine ran out of memory: this file is too large to edit in a browser tab. Reload Margin to keep working.";
 
 /** A PDFium load error (FPDF_ERR_* code) with a user-facing message. */
@@ -368,8 +391,8 @@ export type TextObjectInfo = {
   bounds: Rect;
   fontSize: number;
   /** fill colour as 0–255 r, g, b, a */
-  color: number[];
-  matrix: number[];
+  color: RGBA;
+  matrix: Matrix;
   fontName: string;
   /** text render mode 3 (invisible, e.g. OCR layers) */
   invisible: boolean;
@@ -425,7 +448,8 @@ export type TextMark = {
   lh: number;
   st: string;
   al: string;
-  bm: number[] | null;
+  /** block matrix (always 6 finite numbers) */
+  bm: Matrix | null;
   rt: string;
 };
 /** A rendered image annotation object: placement and RGBA pixels. */
@@ -438,7 +462,7 @@ export type RenderedImage = { m: Matrix; rgba: Uint8ClampedArray; w: number; h: 
 class Doc {
   lib: Pdfium;
   /** The cwrapped PDFium API. */
-  P: any;
+  P: PdfiumApi;
   /** FPDF_DOCUMENT handle (0 once closed). */
   h: number;
   src: PdfSource | null;
@@ -527,7 +551,7 @@ class Doc {
   pageBoxes(index: number): { media: Rect; crop: Rect } {
     const P = this.P, lib = this.lib;
     return this.withPage(index, (page) => lib.tmp((alloc) => {
-      const buf = alloc(16), getBox = (fnName: string): Rect | null => P[fnName](page, buf, buf + 4, buf + 8, buf + 12) ? (([x0, y0, x1, y1]) => ({ l: Math.min(x0, x1), b: Math.min(y0, y1), r: Math.max(x0, x1), t: Math.max(y0, y1) }))(lib.readFloats(buf, 4)) : null, media = getBox("FPDFPage_GetMediaBox") || { l: 0, b: 0, r: P.FPDF_GetPageWidthF(page), t: P.FPDF_GetPageHeightF(page) }, cropBox = getBox("FPDFPage_GetCropBox"), crop = cropBox ? { l: Math.max(cropBox.l, media.l), b: Math.max(cropBox.b, media.b), r: Math.min(cropBox.r, media.r), t: Math.min(cropBox.t, media.t) } : media;
+      const buf = alloc(16), getBox = (fnName: "FPDFPage_GetMediaBox" | "FPDFPage_GetCropBox"): Rect | null => P[fnName](page, buf, buf + 4, buf + 8, buf + 12) ? (([x0, y0, x1, y1]) => ({ l: Math.min(x0, x1), b: Math.min(y0, y1), r: Math.max(x0, x1), t: Math.max(y0, y1) }))(lib.readFloats(buf, 4)) : null, media = getBox("FPDFPage_GetMediaBox") || { l: 0, b: 0, r: P.FPDF_GetPageWidthF(page), t: P.FPDF_GetPageHeightF(page) }, cropBox = getBox("FPDFPage_GetCropBox"), crop = cropBox ? { l: Math.max(cropBox.l, media.l), b: Math.max(cropBox.b, media.b), r: Math.min(cropBox.r, media.r), t: Math.min(cropBox.t, media.t) } : media;
       return { media, crop };
     }));
   }
@@ -928,7 +952,7 @@ class Doc {
             const nameBuf = alloc(256);
             fontName = P.FPDFFont_GetBaseFontName(font, nameBuf, 256) ? lib.M.UTF8ToString(nameBuf) : "";
           }
-          return { bounds: { l, b, r, t }, fontSize: lib.readFloats(sizeBuf, 1)[0], color: lib.readU32(colorBuf, 4), matrix: lib.readFloats(matrixBuf, 6), fontName };
+          return { bounds: { l, b, r, t }, fontSize: lib.readFloats(sizeBuf, 1)[0], color: lib.readU32(colorBuf, 4) as RGBA, matrix: lib.readFloats(matrixBuf, 6) as Matrix, fontName };
         }), mark = readTextMark(lib, obj, "MarginText"), invisible = P.FPDFTextObj_GetTextRenderMode(obj) === 3;
         if (!(invisible && !mark)) out.push({ index: k, text, ...props, invisible, margin: mark || undefined });
       }
@@ -1472,7 +1496,7 @@ class Doc {
       if (fill) for (const r of rects) {
         const box = P.FPDFPageObj_CreateNewRect(r.l, r.b, r.r - r.l, r.t - r.b);
         P.FPDFPageObj_SetFillColor(box, fill[0], fill[1], fill[2], 255);
-        P.FPDFPath_SetDrawMode(box, 1, 0);
+        P.FPDFPath_SetDrawMode(box, 1, false);
         P.FPDFPage_InsertObject(page, box);
       }
       P.FPDFPage_GenerateContent(page);
@@ -1964,7 +1988,7 @@ class Doc {
         if (!annot) return null;
         try {
           const subtype = P.FPDFAnnot_GetSubtype(annot);
-          if (subtype === ANNOT.FREETEXT || ![ANNOT.SQUARE, ANNOT.CIRCLE, ANNOT.LINE, ANNOT.INK, ANNOT.TEXT, ANNOT.STAMP].includes(subtype)) return null;
+          if (subtype === ANNOT.FREETEXT || !([ANNOT.SQUARE, ANNOT.CIRCLE, ANNOT.LINE, ANNOT.INK, ANNOT.TEXT, ANNOT.STAMP] as number[]).includes(subtype)) return null;
           const str = (key: string) => lib.readW((buf, len) => P.FPDFAnnot_GetStringValue(annot, key, buf, len)), color = lib.tmp((alloc): RGBA | null => {
             const buf = alloc(16);
             return P.EPDFAnnot_GetColor(annot, 0, buf, buf + 4, buf + 8) ? [...lib.readU32(buf, 3), 255] as RGBA : P.FPDFAnnot_GetColor(annot, 0, buf, buf + 4, buf + 8, buf + 12) ? lib.readU32(buf, 4) as RGBA : null;
@@ -2163,7 +2187,7 @@ Q`);
       const annot = P.FPDFPage_GetAnnot(page, annotIndex);
       try {
         const subtype = P.FPDFAnnot_GetSubtype(annot);
-        if ([ANNOT.HIGHLIGHT, ANNOT.UNDERLINE, ANNOT.STRIKEOUT, ANNOT.SQUIGGLY, ANNOT.REDACT].includes(subtype)) return false;
+        if (([ANNOT.HIGHLIGHT, ANNOT.UNDERLINE, ANNOT.STRIKEOUT, ANNOT.SQUIGGLY, ANNOT.REDACT] as number[]).includes(subtype)) return false;
         if (subtype === ANNOT.LINE) {
           const pts = this.readLine(annot);
           if (!pts) return false;
@@ -2230,7 +2254,7 @@ Q`);
       const annot = P.FPDFPage_GetAnnot(page, annotIndex);
       try {
         const subtype = P.FPDFAnnot_GetSubtype(annot);
-        if (subtype === ANNOT.FREETEXT || subtype === ANNOT.TEXT || subtype === ANNOT.REDACT || [ANNOT.HIGHLIGHT, ANNOT.UNDERLINE, ANNOT.STRIKEOUT, ANNOT.SQUIGGLY].includes(subtype)) return false;
+        if (subtype === ANNOT.FREETEXT || subtype === ANNOT.TEXT || subtype === ANNOT.REDACT || ([ANNOT.HIGHLIGHT, ANNOT.UNDERLINE, ANNOT.STRIKEOUT, ANNOT.SQUIGGLY] as number[]).includes(subtype)) return false;
         const from = annotRect(lib, annot), sx = (rect.r - rect.l) / Math.max(1e-6, from.r - from.l), sy = (rect.t - rect.b) / Math.max(1e-6, from.t - from.b), map = (x: number, y: number) => [rect.l + (x - from.l) * sx, rect.b + (y - from.b) * sy];
         if (this.isDrawn(annot)) {
           this.reframeAP(annot, from, rect);
@@ -2672,7 +2696,7 @@ function readTextMark(lib: Pdfium, obj: number, name: string): TextMark | null {
           lib.free(buf);
         }
       }
-      return { id: param("id"), font: param("font"), ln: +param("ln") || 0, size: +param("size") || 0, color: param("color"), lh: +param("lh") || 1.5, st: param("st"), al: param("al") || "left", bm: bm.length === 6 && bm.every(Number.isFinite) ? bm : null, rt };
+      return { id: param("id"), font: param("font"), ln: +param("ln") || 0, size: +param("size") || 0, color: param("color"), lh: +param("lh") || 1.5, st: param("st"), al: param("al") || "left", bm: bm.length === 6 && bm.every(Number.isFinite) ? bm as Matrix : null, rt };
     });
     if (params) return params;
   }

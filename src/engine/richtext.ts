@@ -1,10 +1,14 @@
 import { isWinAnsi, measureText, writeText, loadFace, resolveFace, fontByKey } from './text';
+import type { FontDef, FontFace_, LoadedFont } from './text';
+import type { Doc } from './pdfium';
 
 /**
  * A styled run of text. Flags: b bold, i italic, u underline, s strike-through; c colour as "rrggbb",
  * f font key, z size in pt. Absent fields inherit from the block.
  */
 export type Run = { t: string; b?: boolean; i?: boolean; u?: boolean; s?: boolean; c?: string; f?: string; z?: number };
+/** The style part of a run (no text). */
+export type RunStyle = Omit<Run, "t">;
 /** List type of a paragraph: "b" bulleted, "n" numbered, null none. */
 export type ListKind = "b" | "n" | null;
 /**
@@ -42,7 +46,7 @@ const hexToRgba = (hex: string | undefined): [number, number, number, number] =>
   return [n >> 16 & 255, n >> 8 & 255, n & 255, 255];
 };
 /** True when two runs have the same style (text ignored). */
-const sameRunStyle = (a: Run, b: Run): boolean => !!a.b == !!b.b && !!a.i == !!b.i && !!a.u == !!b.u && !!a.s == !!b.s && (a.c || "") === (b.c || "") && (a.f || "") === (b.f || "") && (a.z || 0) === (b.z || 0);
+const sameRunStyle = (a: RunStyle, b: RunStyle): boolean => !!a.b == !!b.b && !!a.i == !!b.i && !!a.u == !!b.u && !!a.s == !!b.s && (a.c || "") === (b.c || "") && (a.f || "") === (b.f || "") && (a.z || 0) === (b.z || 0);
 const GRAPHEME_SEGMENTER = typeof Intl < "u" && Intl.Segmenter ? new Intl.Segmenter("th", { granularity: "grapheme" }) : null;
 const WORD_SEGMENTER = typeof Intl < "u" && Intl.Segmenter ? new Intl.Segmenter("th", { granularity: "word" }) : null;
 /** The block's text, paragraphs joined with newlines. */
@@ -67,7 +71,13 @@ function normalizeRuns(runs: Run[]): Run[] {
   if (!text) return [{ t: "" }];
   const runAt: Run[] = [];
   for (const run of runs) for (let i = 0; i < run.t.length; i++) runAt.push(run);
-  const out: Run[] = [], segments = GRAPHEME_SEGMENTER ? [...GRAPHEME_SEGMENTER.segment(text)] : [...text].map((ch, index) => ({ segment: ch, index }));
+  // segment indexes are UTF-16 offsets, like runAt (a code point outside the BMP takes two units)
+  let unitIndex = 0;
+  const out: Run[] = [], segments = GRAPHEME_SEGMENTER ? [...GRAPHEME_SEGMENTER.segment(text)] : [...text].map((ch) => {
+    const index = unitIndex;
+    unitIndex += ch.length;
+    return { segment: ch, index };
+  });
   for (const seg of segments) {
     const style = runAt[seg.index], last = out[out.length - 1];
     if (last && sameRunStyle(last, style)) last.t += seg.segment;
@@ -86,17 +96,17 @@ function normalizeRuns(runs: Run[]): Run[] {
   return out;
 }
 /** Build a rich-text block from plain lines and the style recorded in a (pre-rich-text) MarginText mark. */
-function richFromPlain(lines: string[], mark: { st: string; font: string; size: number; color: string; align: string; lh: number; bm: any }): RichText {
+function richFromPlain(lines: string[], mark: { st: string; font: string; size: number; color: string; align: string; lh: number; bm: number[] }): RichText {
   const b = mark.st.includes("b"), i = mark.st.includes("i"), u = mark.st.includes("u"), s = mark.st.includes("s");
   return { v: 1, paras: lines.map((line) => [{ t: line, ...b ? { b } : {}, ...i ? { i } : {}, ...u ? { u } : {}, ...s ? { s } : {} }]), font: mark.font, size: mark.size, color: mark.color, align: mark.align, lh: mark.lh, bm: mark.bm };
 }
 /** The block's default font, or Sarabun when it is a standard font that cannot encode the block's text. */
-function blockFont(rt: RichText) {
+function blockFont(rt: RichText): FontDef {
   const def = fontByKey(rt.font);
   return def.std && !isWinAnsi(plainText(rt).replace(/\n/g, "")) ? fontByKey("sarabun") : def;
 }
 /** The font a run is drawn with (its own font, else the block's; Sarabun when a standard font cannot encode it). */
-function runFont(rt: RichText, run: Run) {
+function runFont(rt: RichText, run: Run): FontDef {
   if (!run.f) return blockFont(rt);
   const def = fontByKey(run.f);
   return def.std && !isWinAnsi(run.t) ? fontByKey("sarabun") : def;
@@ -111,7 +121,7 @@ type MeasuredWord = { parts: MeasuredPart[]; w: number; space: boolean };
  * wrap to `rt.width`, align (left / center / right / justify) and add list markers.
  */
 async function layoutRich(rt: RichText): Promise<LayoutLine[]> {
-  const faces = /* @__PURE__ */ new Map(), faceFor = async (run: Run, text: string) => {
+  const faces = /* @__PURE__ */ new Map<string, { face: FontFace_; l: LoadedFont }>(), faceFor = async (run: Run, text: string) => {
     const def = runFont(rt, { ...run, t: text }), key = def.key + (run.b ? "b" : "") + (run.i ? "i" : "");
     let entry = faces.get(key);
     if (!entry) {
@@ -232,7 +242,7 @@ async function layoutRich(rt: RichText): Promise<LayoutLine[]> {
  * block itself is stored (`rt`) on the first segment's mark so it can be edited again.
  * Returns the id and the number of lines written (0 when the block is empty).
  */
-async function writeRichText(doc: any, pageIndex: number, rt: RichText, id?: string): Promise<{ id: string; lines: number }> {
+async function writeRichText(doc: Doc, pageIndex: number, rt: RichText, id?: string): Promise<{ id: string; lines: number }> {
   const lines = await layoutRich(rt), blockId = id || "b" + Math.random().toString(36).slice(2, 9), [a, b, c, d, e, f] = rt.bm;
   let first = true;
   for (const [lineIndex, line] of lines.entries()) for (const seg of line.segs) {
@@ -248,14 +258,14 @@ async function writeRichText(doc: any, pageIndex: number, rt: RichText, id?: str
  * new paragraphs inherit the list type of the paragraph they split.
  */
 function spliceRichText(rt: RichText, start: number, end: number, text: string): RichText {
-  const chars: { ch: string; run: Run }[] = [];
+  const chars: { ch: string; run: RunStyle }[] = [];
   rt.paras.forEach((para, paraIndex) => {
     if (paraIndex) chars.push({ ch: `
-`, run: {} as Run });
+`, run: {} });
     for (const run of para) for (const ch of run.t) chars.push({ ch, run });
   });
   // one entry per UTF-16 code unit
-  const units: { ch: string; run: Run }[] = [];
+  const units: { ch: string; run: RunStyle }[] = [];
   for (const c of chars) for (const unit of c.ch.split("")) units.push({ ch: unit, run: c.run });
   const insertStyle = units[start]?.run && units[start].ch !== `
 ` ? units[start].run : units[Math.max(0, start - 1)]?.run || {}, inserted = text.split("").map((ch) => ({ ch, run: ch === `
@@ -267,7 +277,7 @@ function spliceRichText(rt: RichText, start: number, end: number, text: string):
       continue;
     }
     const para = paras[paras.length - 1], last = para[para.length - 1];
-    if (last && sameRunStyle(last, unit.run as Run)) last.t += unit.ch;
+    if (last && sameRunStyle(last, unit.run)) last.t += unit.ch;
     else para.push({ ...unit.run, t: unit.ch });
   }
   const startPara = units.slice(0, start).filter((unit) => unit.ch === `
@@ -319,8 +329,8 @@ function cssColorHex(css: string): string {
   return /^[0-9a-f]{6}$/i.test(hex) ? hex.toLowerCase() : /^[0-9a-f]{3}$/i.test(hex) ? hex.split("").map((d) => d + d).join("").toLowerCase() : "";
 }
 /** The run style inside `el`, given the style outside it (tags, inline CSS and data-f / data-z). */
-function applyElementStyle(outer: Run | Omit<Run, "t">, el: HTMLElement): any {
-  const style: any = { ...outer }, tag = el.tagName;
+function applyElementStyle(outer: RunStyle, el: HTMLElement): RunStyle {
+  const style: RunStyle = { ...outer }, tag = el.tagName;
   if (tag === "B" || tag === "STRONG") style.b = true;
   if (tag === "I" || tag === "EM") style.i = true;
   if (tag === "U" || tag === "INS") style.u = true;
@@ -357,7 +367,7 @@ function htmlToRich(root: HTMLElement, defaultColor: string, defaultFont = "", d
     runs = [];
     hasContent = false;
     paraList = currentList && paraList ? paraList : null;
-  }, walk = (parent: HTMLElement, style: any) => {
+  }, walk = (parent: HTMLElement, style: RunStyle) => {
     const children = [...parent.childNodes];
     children.forEach((node, index) => {
       if (node.nodeType === Node.TEXT_NODE) {

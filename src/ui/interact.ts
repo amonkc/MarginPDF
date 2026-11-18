@@ -4,22 +4,20 @@ import { loadFont, fontCss, removeObjects, parseStyleCode, styleCode, writeText,
 import { toast, rgbCss, modal, svg, h } from './dom';
 import { decodeImage, encodeImage, defaultImageBox, pickImageFile, imageMatrix, dragImageBox } from './images';
 import { placeStamp } from './stamps';
-import type { Matrix, Pt, RGBA, Rect } from '../engine/types';
-import type { PageView } from './viewer';
+import type { Matrix, Pt, RGBA, Rect, AnnotInfo, LineEnd } from '../engine/types';
+import type { Doc, FieldInfo, TextObjectInfo } from '../engine/pdfium';
+import type { Run, RichText } from '../engine/richtext';
+import type { App } from '../app';
+import type { PageView, Viewer } from './viewer';
+import type { DecodedImage } from './images';
+import type { Arrange } from './arrange';
+import type { Crop } from './crop';
+import type { TextBoxes } from './textbox';
+import type { Links } from './links';
+import type { Forms } from './forms';
 
-/** A text object on a page, as listed by Doc.textObjects(). */
-export type TextObj = {
-  index: number;
-  text: string;
-  bounds: Rect;
-  matrix: Matrix;
-  fontName: string;
-  fontSize: number;
-  color: RGBA;
-  /** Margin's own metadata on text it wrote: block id, line number, rich text and block style */
-  margin?: { id: string; ln: number; rt?: string; font?: string; size?: number; color?: string; st?: string; al?: string; lh?: number; bm?: Matrix; [k: string]: any };
-  [k: string]: any;
-};
+/** A text object on a page, as listed by Doc.textObjects() (Margin blocks carry their mark in `margin`). */
+export type TextObj = TextObjectInfo;
 
 /** An editable unit of page text: a Margin text block, or a run of adjacent same-style objects on one line. */
 export type TextRun = { objs: TextObj[]; bounds: Rect; block: boolean; text: string };
@@ -29,9 +27,9 @@ type InlineStyle = { bold: boolean; italic: boolean; underline: boolean; strike:
 
 /** What the inline text editor is editing. */
 type EditorTarget =
-  | { kind: "new"; at: Pt; rd: any; scale: number }
-  | { kind: "block"; blockId: string; rd: any; scale: number }
-  | { kind: "para" | "object"; objs: TextObj[]; rd: any; scale: number };
+  | { kind: "new"; at: Pt; rd: RichText; scale: number }
+  | { kind: "block"; blockId: string; rd: RichText; scale: number }
+  | { kind: "para" | "object"; objs: TextObj[]; rd: RichText; scale: number };
 
 /** State of the open inline rich-text editor. */
 export type EditorState = {
@@ -39,7 +37,7 @@ export type EditorState = {
   el: HTMLElement;
   kind: "new" | "block" | "para" | "object";
   /** the rich-text document being edited (as it was when opened) */
-  rd: any;
+  rd: RichText;
   /** text-space → page scale of the edited text */
   scale: number;
   at?: Pt;
@@ -64,7 +62,7 @@ export type EditorState = {
 export type SavedSignature = { url: string; w: number; h: number; rgba?: Uint8ClampedArray };
 
 /** Pointer-move / pointer-up callback for {@link Interact.drag}: PDF point and the raw event. */
-type DragFn = (svg, e: PointerEvent) => void;
+type DragFn = (at: Pt, e: PointerEvent) => void;
 
 /** "rrggbb" (padded/truncated to 6 digits) → opaque RGBA. */
 const parseHexColor = (hex: string): RGBA => {
@@ -80,8 +78,8 @@ const dist = (a: Pt, b: Pt): number => Math.hypot(a.x - b.x, a.y - b.y);
  * and the saved signatures.
  */
 class Interact {
-  app: any;
-  v: any;
+  app: App;
+  v: Viewer;
   editor: EditorState | null = null;
   onEditor: (editor: EditorState | null) => void = () => {
   };
@@ -92,22 +90,22 @@ class Interact {
   /** Ctrl/Cmd+B/I/U ("b" | "i" | "u") or Ctrl/Cmd+Shift+X ("x") inside the editor */
   onFormatKey: (key: string) => void = () => {
   };
-  arrange: any = null;
+  arrange: Arrange | null = null;
   /** the image picked for the Image tool */
-  image: any = null;
-  crop: any = null;
-  textbox: any = null;
-  links: any = null;
-  forms: any = null;
+  image: DecodedImage | null = null;
+  crop: Crop | null = null;
+  textbox: TextBoxes | null = null;
+  links: Links | null = null;
+  forms: Forms | null = null;
   /** previous pointer-down, for double-click detection */
   lastDown: { t: number; x: number; y: number; page: number } | null = null;
   onImage: () => void = () => {
   };
-  constructor(app: any, viewer: any) {
+  constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
-    viewer.onOverlay = (pv: PageView) => this.overlay(pv);
-    viewer.inner.addEventListener("pointerdown", (e: PointerEvent) => this.down(e));
+    viewer.onOverlay = (pv) => this.overlay(pv);
+    viewer.inner.addEventListener("pointerdown", (e) => this.down(e));
     this.loadSaved();
   }
   /** The page view an event happened on. */
@@ -183,13 +181,13 @@ class Interact {
       } else if (field.type === FIELD.SIGNATURE) {
         const center = { x: (field.rect.l + field.rect.r) / 2, y: (field.rect.b + field.rect.t) / 2 };
         // already signed (a stamp covers the field's centre) or read-only: no button
-        if (this.v.annotsOf(pv).some((a: any) => a.subtype === ANNOT.STAMP && a.rect.l <= center.x && a.rect.r >= center.x && a.rect.b <= center.y && a.rect.t >= center.y) || field.readOnly) continue;
+        if (this.v.annotsOf(pv).some((a: AnnotInfo) => a.subtype === ANNOT.STAMP && a.rect.l <= center.x && a.rect.r >= center.x && a.rect.b <= center.y && a.rect.t >= center.y) || field.readOnly) continue;
         const button = h("button", { class: "fld sigfld", type: "button", "aria-label": `Sign “${field.name || "signature"}”`, title: "Click to sign", style: place }, h("span", { text: "Sign here" }));
         button.addEventListener("pointerdown", (e: Event) => e.stopPropagation());
         button.addEventListener("click", () => this.signField(pv, field.rect));
         pv.ov.append(button);
       } else if (field.type === FIELD.COMBO || field.type === FIELD.LIST) {
-        const select = h("select", { class: "fld", "aria-label": field.name || "Choice", disabled: field.readOnly, style: place }, ...field.options.map((opt: any, i: number) => h("option", { value: String(i), text: opt.label, selected: opt.selected })));
+        const select = h("select", { class: "fld", "aria-label": field.name || "Choice", disabled: field.readOnly, style: place }, ...field.options.map((opt: FieldInfo["options"][number], i: number) => h("option", { value: String(i), text: opt.label, selected: opt.selected })));
         select.addEventListener("pointerdown", (e: Event) => e.stopPropagation());
         select.addEventListener("change", () => mutateField("Choose option", () => this.app.doc.selectOption(pv.index, field.index, +select.value)));
         pv.ov.append(select);
@@ -197,7 +195,7 @@ class Interact {
     }
   }
   /** Primary-button pointer-down on a page: commits an open editor, detects double-clicks, dispatches to the tool. */
-  down(e: PointerEvent): any {
+  down(e: PointerEvent): void | Promise<void> {
     if (e.button !== 0) return;
     const pv = this.pvFrom(e);
     if (!pv || (e.target as HTMLElement).closest(".editor")) return;
@@ -302,11 +300,10 @@ class Interact {
     this.app.selectedAnnot = { page: pv.index, index };
     this.refreshOverlays();
     this.onSelect();
-    const annot = this.v.annotsOf(pv).find((a: any) => a.index === index);
+    const annot = this.v.annotsOf(pv).find((a: AnnotInfo) => a.index === index);
     if (!annot || isTextMarkup(annot.subtype)) return;
     // the overlay was rebuilt above, so look the box up again
     const start = this.v.toPage(pv, e), moved = pv.ov.querySelector<HTMLElement>(`.abox[data-annot="${index}"]`)!, left0 = parseFloat(moved.style.left), top0 = parseFloat(moved.style.top);
-    pv.ov.getBoundingClientRect();
     const x0 = e.clientX, y0 = e.clientY;
     this.drag(e, pv, (_pt, ev) => {
       moved.style.left = left0 + (ev.clientX - x0) + "px";
@@ -323,10 +320,10 @@ class Interact {
   dbl(e: PointerEvent): void {
     const pv = this.pvFrom(e);
     if (!pv || this.app.tool !== "select") return;
-    const boxEl = (e.target as HTMLElement).closest<HTMLElement>(".abox"), at = this.v.toPage(pv, e), hit: number | undefined = boxEl ? +boxEl.dataset.annot! : this.v.annotsOf(pv).filter((a: any) => !isTextMarkup(a.subtype) && at.x >= a.rect.l && at.x <= a.rect.r && at.y >= a.rect.b && at.y <= a.rect.t).sort((a: any, b: any) => (a.rect.r - a.rect.l) * (a.rect.t - a.rect.b) - (b.rect.r - b.rect.l) * (b.rect.t - b.rect.b))[0]?.index;
+    const boxEl = (e.target as HTMLElement).closest<HTMLElement>(".abox"), at = this.v.toPage(pv, e), hit: number | undefined = boxEl ? +boxEl.dataset.annot! : this.v.annotsOf(pv).filter((a: AnnotInfo) => !isTextMarkup(a.subtype) && at.x >= a.rect.l && at.x <= a.rect.r && at.y >= a.rect.b && at.y <= a.rect.t).sort((a: AnnotInfo, b: AnnotInfo) => (a.rect.r - a.rect.l) * (a.rect.t - a.rect.b) - (b.rect.r - b.rect.l) * (b.rect.t - b.rect.b))[0]?.index;
     if (hit == null) return;
     const index = hit;
-    if (this.v.annotsOf(pv).find((a: any) => a.index === index)?.subtype === ANNOT.FREETEXT && this.textbox) {
+    if (this.v.annotsOf(pv).find((a: AnnotInfo) => a.index === index)?.subtype === ANNOT.FREETEXT && this.textbox) {
       this.textbox.edit(pv, index);
       return;
     }
@@ -370,9 +367,12 @@ class Interact {
     });
   }
   /** Rectangle / ellipse by dragging; needs an outline or a fill colour. */
-  shapeDown(e: PointerEvent, pv: PageView, tool: "rect" | "ellipse"): any {
+  shapeDown(e: PointerEvent, pv: PageView, tool: "rect" | "ellipse"): void {
     const start = this.v.toPage(pv, e), { shapeColor, shapeWidth, shapeFill, shapeOpacity = 1 } = this.app.settings;
-    if (!shapeColor && !shapeFill) return toast("Pick an outline or a fill colour first", "warn");
+    if (!shapeColor && !shapeFill) {
+      toast("Pick an outline or a fill colour first", "warn");
+      return;
+    }
     this.drag(e, pv, (at) => {
       const box = pv.tf.box(rectFrom2(start, at)), paint = { fill: shapeFill ? rgbCss(shapeFill) : "none", stroke: shapeColor ? rgbCss(shapeColor) : "none", "stroke-width": shapeWidth * this.v.zoom, opacity: shapeOpacity };
       pv.svg.replaceChildren(tool === "rect" ? svg("rect", { x: box.x, y: box.y, width: box.w, height: box.h, ...paint }) : svg("ellipse", { cx: box.x + box.w / 2, cy: box.y + box.h / 2, rx: box.w / 2, ry: box.h / 2, ...paint }));
@@ -412,7 +412,7 @@ class Interact {
   }
   /** Line / arrow; Shift snaps the angle to 45° steps. */
   lineDown(e: PointerEvent, pv: PageView): void {
-    const start: Pt = this.v.toPage(pv, e), { lineColor, lineWidth, lineEnds } = this.app.settings, ends = lineEnds === "double" ? ["OpenArrow", "OpenArrow"] : lineEnds === "arrow" ? ["None", "OpenArrow"] : ["None", "None"];
+    const start: Pt = this.v.toPage(pv, e), { lineColor, lineWidth, lineEnds } = this.app.settings, ends: [LineEnd, LineEnd] = lineEnds === "double" ? ["OpenArrow", "OpenArrow"] : lineEnds === "arrow" ? ["None", "OpenArrow"] : ["None", "None"];
     let end = start;
     const snap = (at: Pt, ev: PointerEvent): Pt => {
       if (!ev.shiftKey) return at;
@@ -573,23 +573,29 @@ class Interact {
     return false;
   }
   /** Sign tool: places the active signature, 150 pt wide, centred on the click. */
-  async signDown(pv: PageView, at: Pt): Promise<any> {
+  async signDown(pv: PageView, at: Pt): Promise<void> {
     if (!this.signature && !await this.chooseSignature()) return;
     const sig = this.signature!;
     if (!sig.rgba) await new Promise((resolve) => setTimeout(resolve, 80));
-    if (!sig.rgba) return toast("The signature is still loading. Click again.", "warn");
-    const w = 150, h = w * (sig.h / sig.w), rect = { l: at.x - w / 2, r: at.x + w / 2, t: at.y + h / 2, b: at.y - h / 2 };
-    await this.app.mutate("Place signature", { pages: [pv.index] }, () => this.app.doc.addImageStamp(pv.index, rect, sig.rgba, sig.w, sig.h, this.app.settings.author)).catch((err: Error) => toast(err.message, "err"));
+    if (!sig.rgba) {
+      toast("The signature is still loading. Click again.", "warn");
+      return;
+    }
+    const rgba = sig.rgba, w = 150, h = w * (sig.h / sig.w), rect = { l: at.x - w / 2, r: at.x + w / 2, t: at.y + h / 2, b: at.y - h / 2 };
+    await this.app.mutate("Place signature", { pages: [pv.index] }, () => this.app.doc.addImageStamp(pv.index, rect, rgba, sig.w, sig.h, this.app.settings.author)).catch((err: Error) => toast(err.message, "err"));
     this.app.setTool("select");
   }
   /** Signs a signature field: the signature is fitted inside the field with a small inset, slightly below centre. */
-  async signField(pv: PageView, field: Rect): Promise<any> {
+  async signField(pv: PageView, field: Rect): Promise<void> {
     if ((this.saved.length > 1 || !this.signature) && !await this.chooseSignature()) return;
     const sig = this.signature!;
     if (!sig.rgba) await new Promise((resolve) => setTimeout(resolve, 120));
-    if (!sig.rgba) return toast("The signature is still loading. Click again.", "warn");
-    const inset = Math.min(4, (field.t - field.b) * 0.08), availW = field.r - field.l - inset * 2, availH = field.t - field.b - inset * 2, scale = Math.min(availW / sig.w, availH / sig.h), w = sig.w * scale, h = sig.h * scale, cx = (field.l + field.r) / 2, bottom = field.b + inset + (availH - h) * 0.35, rect = { l: cx - w / 2, r: cx + w / 2, b: bottom, t: bottom + h };
-    await this.app.mutate("Sign field", { pages: [pv.index] }, () => this.app.doc.addImageStamp(pv.index, rect, sig.rgba, sig.w, sig.h, this.app.settings.author)).catch((err: Error) => toast(err.message, "err"));
+    if (!sig.rgba) {
+      toast("The signature is still loading. Click again.", "warn");
+      return;
+    }
+    const rgba = sig.rgba, inset = Math.min(4, (field.t - field.b) * 0.08), availW = field.r - field.l - inset * 2, availH = field.t - field.b - inset * 2, scale = Math.min(availW / sig.w, availH / sig.h), w = sig.w * scale, h = sig.h * scale, cx = (field.l + field.r) / 2, bottom = field.b + inset + (availH - h) * 0.35, rect = { l: cx - w / 2, r: cx + w / 2, b: bottom, t: bottom + h };
+    await this.app.mutate("Sign field", { pages: [pv.index] }, () => this.app.doc.addImageStamp(pv.index, rect, rgba, sig.w, sig.h, this.app.settings.author)).catch((err: Error) => toast(err.message, "err"));
   }
   /** Asks for an image file for the Image tool. Resolves true when one was loaded. */
   async chooseImage(): Promise<boolean> {
@@ -604,7 +610,7 @@ class Interact {
     }
   }
   /** Replaces the Image tool's image, releasing the previous one. */
-  setImage(image: any): void {
+  setImage(image: DecodedImage | null): void {
     if (this.image && this.image !== image) {
       URL.revokeObjectURL(this.image.url);
       this.image.bitmap.close();
@@ -635,7 +641,7 @@ class Interact {
     });
   }
   /** Inserts an image into the box (overlay pixels), then selects it with Move & resize. */
-  async placeImage(pv: PageView, image: any, box: { x: number; y: number; w: number; h: number }): Promise<void> {
+  async placeImage(pv: PageView, image: DecodedImage, box: { x: number; y: number; w: number; h: number }): Promise<void> {
     const scale = this.scaleOf(pv);
     try {
       const src = await encodeImage(image, box.w / scale, box.h / scale);
@@ -656,26 +662,32 @@ class Interact {
    * Places a pasted or dropped image file at natural size: at the pointer when `at` is given, otherwise centred
    * in the visible part of the current page.
    */
-  async placeImageFile(file: File, at?: { pv: PageView; clientX: number; clientY: number } | null): Promise<any> {
-    let image;
+  async placeImageFile(file: File, at?: { pv: PageView; clientX: number; clientY: number } | null): Promise<void> {
+    let image: DecodedImage;
     try {
       image = await decodeImage(file, file.name || "Pasted image");
     } catch (err) {
-      return toast((err as Error).message, "err");
+      toast((err as Error).message, "err");
+      return;
     }
-    let pv = at?.pv, x, y0;
+    let pv = at?.pv, x: number, y0: number;
     if (pv && at) {
       const ovBox = pv.ov.getBoundingClientRect();
       x = at.clientX - ovBox.left;
       y0 = at.clientY - ovBox.top;
     } else {
       pv = this.v.views[this.app.currentPage] || this.v.views[0];
-      if (!pv) return;
+      if (!pv) {
+        // nowhere to place it: release the decoded image
+        URL.revokeObjectURL(image.url);
+        image.bitmap.close();
+        return;
+      }
       const ovBox = pv.ov.getBoundingClientRect(), viewBox = this.v.el.getBoundingClientRect(), top = Math.max(ovBox.top, viewBox.top), bottom = Math.min(ovBox.bottom, viewBox.bottom);
       x = ovBox.width / 2;
       y0 = (bottom > top ? (top + bottom) / 2 : ovBox.top + ovBox.height / 2) - ovBox.top;
     }
-    await this.placeImage(pv!, image, defaultImageBox(image, pv, this.scaleOf(pv!), x, y0));
+    await this.placeImage(pv, image, defaultImageBox(image, pv, this.scaleOf(pv), x, y0));
     URL.revokeObjectURL(image.url);
     image.bitmap.close();
   }
@@ -695,7 +707,7 @@ class Interact {
       this.openEditor(pv, { kind: "block", blockId: run.objs[0].margin!.id, rd, scale: matrixScale(rd.bm) }, run.bounds);
       return;
     }
-    const lines = paragraphOf(runs, run), first = lines[0].objs[0], baseFont = first.fontName.replace(/^[A-Z]{6}\+/, ""), bold = /bold|black|heavy|semibold|demi/i.test(baseFont), italic = /italic|oblique/i.test(baseFont) || Math.abs(first.matrix[2]) > 0.05 * Math.abs(first.matrix[3]), text = joinLines(lines.map((l) => l.text)), scale = matrixScale(first.matrix), matrix = unskewMatrix(first.matrix), left = Math.min(...lines.map((l) => l.bounds.l)), multi = lines.length > 1, rd = { v: 1, paras: [[{ t: text, ...(bold ? { b: bold } : {}), ...(italic ? { i: italic } : {}) }]], font: guessFontKey(first.fontName, text), size: first.fontSize, color: colorHex(first.color), align: "left", lh: multi ? Math.max(1, (lines[0].objs[0].matrix[5] - lines[1].objs[0].matrix[5]) / (first.fontSize * scale)) : 1.5, width: multi ? (Math.max(...lines.map((l) => l.bounds.r)) - left) / scale * 1.02 : undefined, bm: multi ? [matrix[0], matrix[1], matrix[2], matrix[3], left, matrix[5]] : matrix };
+    const lines = paragraphOf(runs, run), first = lines[0].objs[0], baseFont = first.fontName.replace(/^[A-Z]{6}\+/, ""), bold = /bold|black|heavy|semibold|demi/i.test(baseFont), italic = /italic|oblique/i.test(baseFont) || Math.abs(first.matrix[2]) > 0.05 * Math.abs(first.matrix[3]), text = joinLines(lines.map((l) => l.text)), scale = matrixScale(first.matrix), matrix = unskewMatrix(first.matrix), left = Math.min(...lines.map((l) => l.bounds.l)), multi = lines.length > 1, rd: RichText = { v: 1, paras: [[{ t: text, ...(bold ? { b: bold } : {}), ...(italic ? { i: italic } : {}) }]], font: guessFontKey(first.fontName, text), size: first.fontSize, color: colorHex(first.color), align: "left", lh: multi ? Math.max(1, (lines[0].objs[0].matrix[5] - lines[1].objs[0].matrix[5]) / (first.fontSize * scale)) : 1.5, width: multi ? (Math.max(...lines.map((l) => l.bounds.r)) - left) / scale * 1.02 : undefined, bm: multi ? [matrix[0], matrix[1], matrix[2], matrix[3], left, matrix[5]] : matrix };
     this.openEditor(pv, { kind: multi ? "para" : "object", objs: lines.flatMap((l) => l.objs), rd, scale }, unionRect(lines.map((l) => l.bounds)));
   }
   /** Add text tool: click (or drag to set a wrap width over 24 pt) to open an editor for new text. */
@@ -713,7 +725,7 @@ class Interact {
   }
   /** Opens an empty editor at `at` using the text settings (font, size, colour, style, alignment, line height). */
   openNewEditor(pv: PageView, at: Pt, width?: number): void {
-    const settings = this.app.settings, style = parseStyleCode(settings.textStyle), rd = { v: 1, paras: [[{ t: "", ...(style.bold ? { b: true } : {}), ...(style.italic ? { i: true } : {}), ...(style.underline ? { u: true } : {}), ...(style.strike ? { s: true } : {}) }]], font: settings.textFont, size: settings.textSize, color: colorHex(settings.textColor), align: settings.textAlign, lh: settings.textLh, width, bm: [1, 0, 0, 1, at.x, at.y] };
+    const settings = this.app.settings, style = parseStyleCode(settings.textStyle), rd: RichText = { v: 1, paras: [[{ t: "", ...(style.bold ? { b: true } : {}), ...(style.italic ? { i: true } : {}), ...(style.underline ? { u: true } : {}), ...(style.strike ? { s: true } : {}) }]], font: settings.textFont, size: settings.textSize, color: colorHex(settings.textColor), align: settings.textAlign, lh: settings.textLh, width, bm: [1, 0, 0, 1, at.x, at.y] };
     this.openEditor(pv, { kind: "new", at, rd, scale: 1 }, null);
   }
   /**
@@ -724,7 +736,7 @@ class Interact {
     const rd = target.rd, el = h("div", { class: "editor rich", contenteditable: "true", spellcheck: "true", role: "textbox", "aria-multiline": "true", "aria-label": "Text" });
     el.innerHTML = richToHtml(rd, (size: number) => size * target.scale * this.v.zoom, (key: string) => fontCss(fontByKey(key)));
     pv.ov.append(el);
-    const firstSpan = rd.paras[0]?.[0] || {};
+    const firstSpan: Partial<Run> = rd.paras[0]?.[0] || {};
     this.editor = { pv, el, ...target, fontKey: rd.font, size: rd.size, color: hexToRgba(rd.color), align: rd.align, lh: rd.lh, style: { bold: !!firstSpan.b, italic: !!firstSpan.i, underline: !!firstSpan.u, strike: !!firstSpan.s }, bounds } as EditorState;
     try {
       document.execCommand("styleWithCSS", false, "false");
@@ -834,6 +846,8 @@ class Interact {
   setEditorStyle(change: { style?: Partial<InlineStyle>; color?: RGBA; fontKey?: string; size?: number; align?: string; lh?: number }): void {
     const editor = this.editor;
     if (!editor) return;
+    // work on a copy: fontKey / size are dropped below when they only applied to the selection
+    change = { ...change };
     editor.el.focus();
     if (editor.range && editor.el.contains(editor.range.startContainer)) {
       const sel = document.getSelection();
@@ -890,7 +904,7 @@ class Interact {
     const editor = this.editor;
     if (!editor) return;
     const zoom = this.v.zoom, px = editor.size * editor.scale * zoom, lineH = editor.lh * px;
-    let x, baseline;
+    let x: number, baseline: number;
     if (editor.kind === "new") {
       const [dx, dy] = this.v.toDev(editor.pv, editor.at!.x, editor.at!.y);
       x = dx;
@@ -915,7 +929,7 @@ class Interact {
     }
   }
   /** Reads the editor's content back into a rich-text document. */
-  editorDoc(editor: EditorState): any {
+  editorDoc(editor: EditorState): RichText {
     const parsed = htmlToRich(editor.el, colorHex(editor.color), editor.fontKey, editor.size), paras = parsed.paras.map(normalizeRuns), lists = parsed.lists.some(Boolean) ? parsed.lists : undefined, doc = { ...editor.rd, paras, font: editor.fontKey, size: editor.size, color: colorHex(editor.color), align: editor.align, lh: editor.lh };
     if (lists) doc.lists = lists;
     else delete doc.lists;
@@ -937,20 +951,29 @@ class Interact {
     const pdf = this.app.doc, page = editor.pv.index, plain = plainText(doc), unchanged = sameRichDoc(doc, editor.rd);
     try {
       if (editor.kind === "new") {
-        if (!plain.trim()) return this.overlay(editor.pv);
+        if (!plain.trim()) {
+          this.overlay(editor.pv);
+          return;
+        }
         const matrix = await this.newBlockMatrix(editor), fellBack = blockFont(doc).key !== doc.font;
         await this.app.mutate("Add text", { pages: [page] }, async () => {
           await writeRichText(pdf, page, { ...doc, bm: matrix });
         });
         if (fellBack) toast(`${fontByKey(doc.font).label} can't show these characters, so Margin used Sarabun.`, "warn", 4200);
       } else if (editor.kind === "block") {
-        if (unchanged) return this.overlay(editor.pv);
+        if (unchanged) {
+          this.overlay(editor.pv);
+          return;
+        }
         await this.app.mutate("Edit text", { pages: [page] }, async () => {
           removeById(pdf, page, editor.blockId!);
           if (plain.trim()) await writeRichText(pdf, page, doc);
         });
       } else {
-        if (unchanged) return this.overlay(editor.pv);
+        if (unchanged) {
+          this.overlay(editor.pv);
+          return;
+        }
         const objs = editor.objs!, first = objs[0], indices = objs.map((o) => o.index), sameStyle = doc.paras.length === 1 && doc.paras[0].length === 1 && sameRunStyle(doc.paras[0][0], editor.rd.paras[0][0]) && doc.font === editor.rd.font && doc.size === editor.rd.size && doc.color === editor.rd.color;
         await this.app.mutate("Edit text", { pages: [page] }, async () => {
           if (!plain.trim()) return removeObjects(pdf, page, indices);
@@ -1020,11 +1043,12 @@ function groupTextRuns(objs: TextObj[]): TextRun[] {
     let current: TextObj[] = [];
     const flush = () => {
       if (current.length) {
-        if (!joinRunText(current).trim()) {
+        const text = joinRunText(current);
+        if (!text.trim()) {
           current = [];
           return;
         }
-        runs.push({ objs: current, bounds: unionRect(current.map((o) => o.bounds)), block: false, text: joinRunText(current) });
+        runs.push({ objs: current, bounds: unionRect(current.map((o) => o.bounds)), block: false, text });
         current = [];
       }
     };
@@ -1130,29 +1154,33 @@ const TOOL_INFO: Record<string, ToolInfo> = { select: { label: "Select", key: "V
  * style; other text is changed in place when possible, otherwise deleted and redrawn on one line in a matching
  * font. Empty text deletes the run.
  */
-async function replaceRunText(pdf: any, page: number, run: TextRun, text: string): Promise<any> {
+async function replaceRunText(pdf: Doc, page: number, run: TextRun, text: string): Promise<void> {
   if (run.block) {
     const first = run.objs[0], meta = first.margin!;
     removeById(pdf, page, meta.id);
     if (!text.trim()) return;
-    const matrix = meta.bm || unskewMatrix(first.matrix), color = meta.color ? parseHexColor(meta.color) : first.color;
+    // the engine types matrices and colours as number[]; they are always 6 / 4 entries
+    const matrix = (meta.bm || unskewMatrix(first.matrix)) as Matrix, color = meta.color ? parseHexColor(meta.color) : first.color as RGBA;
     await writeText(pdf, page, { lines: text.split(`
-`), fontKey: meta.font || "sarabun", size: meta.size || first.fontSize, color, matrix, ...parseStyleCode(meta.st!), align: meta.al || "left", lineHeight: meta.lh || 1.5 });
+`), fontKey: meta.font || "sarabun", size: meta.size || first.fontSize, color, matrix, ...parseStyleCode(meta.st || ""), align: meta.al || "left", lineHeight: meta.lh || 1.5 });
     return;
   }
   const objs = run.objs, first = objs[0], indices = objs.map((o) => o.index), oneLine = text.replace(/\n+/g, " ");
-  if (!oneLine.trim()) return removeObjects(pdf, page, indices);
+  if (!oneLine.trim()) {
+    removeObjects(pdf, page, indices);
+    return;
+  }
   if (objs.length === 1 && !needsShaping(oneLine) && replaceObjectText(pdf, page, first.index, oneLine)) return;
   const baseFont = first.fontName.replace(/^[A-Z]{6}\+/, ""), style = { bold: /bold|black|heavy|semibold|demi/i.test(baseFont), italic: /italic|oblique/i.test(baseFont) || Math.abs(first.matrix[2]) > 0.05 * Math.abs(first.matrix[3]) };
   removeObjects(pdf, page, indices);
-  await writeText(pdf, page, { lines: [oneLine], fontKey: guessFontKey(first.fontName, oneLine), size: first.fontSize, color: first.color, matrix: unskewMatrix(first.matrix), ...style });
+  await writeText(pdf, page, { lines: [oneLine], fontKey: guessFontKey(first.fontName, oneLine), size: first.fontSize, color: first.color as RGBA, matrix: unskewMatrix(first.matrix), ...style });
 }
 
 /**
  * The rich-text document of a Margin block: its stored rich text, or (older blocks) one paragraph per line
  * rebuilt from the objects' text and the block's stored style.
  */
-function blockRichDoc(run: TextRun): any {
+function blockRichDoc(run: TextRun): RichText {
   const withRich = run.objs.find((o) => o.margin?.rt), stored = withRich ? decodeRichText(withRich.margin!.rt!) : null;
   if (stored) return stored;
   const first = run.objs[0], meta = first.margin!, byLine = new Map<number, string>();
@@ -1217,11 +1245,11 @@ function joinLines(lines: string[]): string {
 }
 
 /** Same inline style (bold, italic, underline, strike, colour) for two rich-text spans. */
-const sameRunStyle = (a: any, b: any): boolean => !!a?.b == !!b?.b && !!a?.i == !!b?.i && !!a?.u == !!b?.u && !!a?.s == !!b?.s && (a?.c || "") === (b?.c || "");
+const sameRunStyle = (a: Run | undefined, b: Run | undefined): boolean => !!a?.b == !!b?.b && !!a?.i == !!b?.i && !!a?.u == !!b?.u && !!a?.s == !!b?.s && (a?.c || "") === (b?.c || "");
 
 /** Whether two rich-text documents have the same content and formatting (normalised spans, lists, width). */
-function sameRichDoc(a: any, b: any): boolean {
-  const key = (d: any) => JSON.stringify({ p: d.paras.map((para: any) => normalizeRuns(para).map((span: any) => ({ ...span }))), f: d.font, s: d.size, c: d.color, a: d.align, l: d.lh, w: d.width || 0, li: (d.lists || []).map((l: any) => l || "").join(",").replace(/,+$/, "") });
+function sameRichDoc(a: RichText, b: RichText): boolean {
+  const key = (d: RichText) => JSON.stringify({ p: d.paras.map((para) => normalizeRuns(para).map((span) => ({ ...span }))), f: d.font, s: d.size, c: d.color, a: d.align, l: d.lh, w: d.width || 0, li: (d.lists || []).map((l) => l || "").join(",").replace(/,+$/, "") });
   return key(a) === key(b);
 }
 

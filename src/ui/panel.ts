@@ -94,7 +94,7 @@ class CommentsPanel {
         this.app.mutate("Edit comment", { pages: [page] }, () => this.app.doc.setAnnotContents(page, annot.index, textarea.value)).catch((err) => toast(err.message, "err"));
       });
       textarea.addEventListener("keydown", (e) => e.stopPropagation());
-      const deleteBtn = h("button", { class: "iconbtn small", type: "button", title: "Delete", "aria-label": "Delete annotation", onclick: (e) => {
+      const deleteBtn = h("button", { class: "iconbtn small", type: "button", title: "Delete", "aria-label": "Delete annotation", onclick: (e: MouseEvent) => {
         e.stopPropagation();
         this.app.mutate("Delete annotation", { pages: [page] }, () => this.app.doc.deleteAnnot(page, annot.index)).catch((err) => toast(err.message, "err"));
       } }, icon("trash")), card = h("div", { class: "ccard" + (selected ? " sel" : ""), "data-key": `${page}:${annot.index}` }, h("div", { class: "chead", onclick: () => this.onGo(page, annot) }, h("span", { class: "cdot", style: { background: colorCss(annot.color) } }), h("span", { class: "ctype", text: annot.subtype === 13 && annot.contents === "Signature" ? "Signature" : ANNOT_NAMES[annot.subtype] }), h("span", { class: "cmeta", text: [annot.author, formatPdfDate(annot.modified)].filter(Boolean).join(" · ") }), deleteBtn), textarea);

@@ -47,7 +47,12 @@ import { TextBoxes } from "./ui/textbox";
 import { pageActions, Thumbs } from "./ui/thumbs";
 import { Viewer } from "./ui/viewer";
 import { DEFAULT_WATERMARK, watermarkDialog } from "./ui/watermark";
-import type { Pt, RGBA, Rect } from "./engine/types";
+import type { AnnotInfo, AnnotStyle, Bookmark, FreeTextStyle, LineEnd, Pt, RGBA, Rect } from "./engine/types";
+import type { Doc, LinkInfo, PageRects } from "./engine/pdfium";
+import type { ArrangeItem } from "./ui/arrange";
+import type { CopiedField } from "./ui/extract";
+import type { ToolInfo } from "./ui/interact";
+import type { ObjClip } from "./ui/pageclip";
 import type { MenuItem } from "./ui/ctxmenu";
 import type { ToastHandle } from "./ui/dom";
 
@@ -61,12 +66,27 @@ interface SearchHit {
 }
 
 
+/** An edge or centre line that Move & resize can align objects on. */
+type AlignEdge = Parameters<Arrange["align"]>[0];
+
+/** A bold/italic/underline/strike text style flag. */
+type StyleFlag = "bold" | "italic" | "underline" | "strike";
+
+/** The text-box style fields the ribbon edits (named as in the app settings). */
+type FreeTextRibbonStyle = {
+  ftSize: number;
+  ftColor: RGBA;
+  ftFill: RGBA | null;
+  ftBorder: RGBA | null;
+  textFont: string;
+};
+
 /** A pending touch long-press that will open a context menu if the finger stays put. */
 interface LongPress {
   t: number;
   x: number;
   y: number;
-  el: any;
+  el: HTMLElement;
 }
 
 let downloadsPromise: Promise<any> | null = null;
@@ -91,7 +111,7 @@ async function main(): Promise<void> {
   $("#boot-version").textContent = "v" + VERSION;
   document.documentElement.dataset.version = VERSION;
   const fetchAsset = loadAsset;
-  let pdfium: any;
+  let pdfium: Pdfium;
   try {
     bootStatus.textContent = "Starting the PDF engine…";
     const [pdfiumWasm, harfbuzzWasm] = await Promise.all([fetchAsset("pdfium.wasm"), fetchAsset("harfbuzz.wasm")]);
@@ -426,8 +446,14 @@ async function main(): Promise<void> {
       "Text color",
     );
     const style = editor ? editor.style : parseStyleCode(app.settings.textStyle);
-    const keepFocus = (event) => event.preventDefault();
-    const styleButton = (key, label, text, cls, shortcut) =>
+    const keepFocus = (event: MouseEvent) => event.preventDefault();
+    const styleButton = (
+      key: StyleFlag,
+      label: string,
+      text: string,
+      cls: string,
+      shortcut: string,
+    ) =>
       h("button", {
         class: "fmt " + cls + (style[key] ? " on" : ""),
         type: "button",
@@ -453,7 +479,7 @@ async function main(): Promise<void> {
     ];
     if (!editor || editor.kind !== "object") {
       const align = editor ? editor.align : app.settings.textAlign;
-      const alignButton = (value, label, iconName) =>
+      const alignButton = (value: string, label: string, iconName: string) =>
         h(
           "button",
           {
@@ -469,7 +495,7 @@ async function main(): Promise<void> {
         );
       if (editor) {
         const list = editor.list || null;
-        const listButton = (kind, label, iconName) =>
+        const listButton = (kind: "b" | "n", label: string, iconName: string) =>
           h(
             "button",
             {
@@ -530,7 +556,10 @@ async function main(): Promise<void> {
     return items;
   }
   /** Ribbon controls for a text box: font, size, text colour, fill and border; `change` gets the edited fields. */
-  function freeTextStyleItems(style: any, change: (patch: any) => unknown): Node[] {
+  function freeTextStyleItems(
+    style: FreeTextRibbonStyle,
+    change: (patch: Partial<FreeTextRibbonStyle>) => unknown,
+  ): Node[] {
     const fontSelect = h("select", { class: "rselect", "aria-label": "Font" });
     for (const group of ["Standard", "Thai + Latin", "Latin"])
       fontSelect.append(
@@ -553,7 +582,12 @@ async function main(): Promise<void> {
       "aria-label": "Font size in points",
     });
     sizeInput.addEventListener("change", () => change({ ftSize: Math.max(4, Math.min(96, +sizeInput.value || 12)) }));
-    const swatches = (colors, current, pick, label) =>
+    const swatches = (
+      colors: (RGBA | null)[],
+      current: RGBA | null,
+      pick: (color: RGBA | null) => unknown,
+      label: string,
+    ) =>
       h(
         "div",
         { class: "swatches", role: "radiogroup", "aria-label": label },
@@ -596,7 +630,7 @@ async function main(): Promise<void> {
   /** Confirms, then applies every redaction mark in the document (removing what lies under them). */
   async function confirmApplyRedactions(): Promise<void> {
     const marks = app.doc.redactMarks();
-    const count = marks.reduce((sum, mark) => sum + mark.rects.length, 0);
+    const count = marks.reduce((sum: number, mark: PageRects) => sum + mark.rects.length, 0);
     if (
       !count ||
       (await modal({
@@ -660,11 +694,11 @@ async function main(): Promise<void> {
     if (tool === "select") {
       const sel = app.selectedAnnot;
       if (sel) {
-        const annot = app.doc.annots(sel.page).find((candidate) => candidate.index === sel.index);
+        const annot = app.doc.annots(sel.page).find((candidate: AnnotInfo) => candidate.index === sel.index);
         if (annot) {
           if (annot.subtype === 3 && annot.ft) {
             const freeText = app.doc.readFreeText(sel.page, sel.index);
-            const ftStyle = {
+            const ftStyle: FreeTextRibbonStyle = {
               ftSize: freeText.style.size,
               ftColor: freeText.style.color,
               ftFill: freeText.style.fill,
@@ -698,9 +732,9 @@ async function main(): Promise<void> {
               fill: null,
               opacity: 1,
             };
-            const run = (apply, label) =>
+            const run = (apply: () => unknown, label: string) =>
               app.mutate(label, { pages: [sel.page] }, apply).catch((err) => toast(err.message, "err"));
-            const setStyle = (patch, label) => run(() => app.doc.setAnnotStyle(sel.page, sel.index, patch), label);
+            const setStyle = (patch: Partial<AnnotStyle>, label: string) => run(() => app.doc.setAnnotStyle(sel.page, sel.index, patch), label);
             items.push(
               field(
                 "Outline",
@@ -846,7 +880,7 @@ async function main(): Promise<void> {
           }),
         );
       else if (sel) {
-        const iconButton = (title, iconName, onClick, disabled = false) =>
+        const iconButton = (title: string, iconName: string, onClick: () => unknown, disabled = false) =>
           h(
             "button",
             {
@@ -1076,8 +1110,10 @@ async function main(): Promise<void> {
         h("span", { class: "hint", text: info.hint }),
       );
     else if (tool === "redact") {
-      const markCount = app.doc.redactMarks().reduce((sum, mark) => sum + mark.rects.length, 0);
-      const modeChip = (mode, label) =>
+      const markCount = app.doc
+        .redactMarks()
+        .reduce((sum: number, mark: PageRects) => sum + mark.rects.length, 0);
+      const modeChip = (mode: string, label: string) =>
         h(
           "button",
           {
@@ -1112,7 +1148,7 @@ async function main(): Promise<void> {
         if (!text) return;
         const hits = app.doc.search(text);
         if (!hits.length) return toast(`No matches for “${text}”`, "warn");
-        const byPage = new Map();
+        const byPage = new Map<number, Rect[]>();
         for (const hit of hits) byPage.set(hit.page, [...(byPage.get(hit.page) || []), ...hit.rects]);
         await app
           .mutate(`Mark “${text}” for redaction`, { pages: [...byPage.keys()] }, () => {
@@ -1169,7 +1205,10 @@ async function main(): Promise<void> {
             {
               class: "btn ghost small",
               type: "button",
-              onclick: () => app.mutate("Clear redaction marks", { pages: "all" }, () => app.doc.clearRedactMarks()),
+              onclick: () =>
+                app
+                  .mutate("Clear redaction marks", { pages: "all" }, () => app.doc.clearRedactMarks())
+                  .catch((err) => toast(err.message, "err")),
             },
             "Clear",
           ),
@@ -1178,7 +1217,7 @@ async function main(): Promise<void> {
         items.push(h("span", { class: "hint", text: info.hint }));
       }
     } else if (tool === "textbox") {
-      const kindChip = (callout, label) =>
+      const kindChip = (callout: boolean, label: string) =>
         h(
           "button",
           {
@@ -1216,7 +1255,7 @@ async function main(): Promise<void> {
         }),
       );
     } else if (tool === "line") {
-      const endsChip = (ends, label, glyph) =>
+      const endsChip = (ends: string, label: string, glyph: string) =>
         h(
           "button",
           {
@@ -1246,7 +1285,7 @@ async function main(): Promise<void> {
         h("span", { class: "hint", text: info.hint }),
       );
     } else if (tool === "rect" || tool === "ellipse") {
-      const applySetting = (assign) => (assign(), app.saveSettings(), renderRibbon());
+      const applySetting = (assign: () => unknown) => (assign(), app.saveSettings(), renderRibbon());
       items.push(
         field(
           "Outline",
@@ -1571,7 +1610,7 @@ async function main(): Promise<void> {
   };
   $("#btn-more").addEventListener("click", () => {
     const rect = $("#btn-more").getBoundingClientRect();
-    const clickById = (id) => () => $("#" + id).click();
+    const clickById = (id: string) => () => $("#" + id).click();
     openMenu(
       rect.right - 240,
       rect.bottom + 6,
@@ -1898,7 +1937,7 @@ async function main(): Promise<void> {
   interact.onFormatKey = (key) => {
     const editor = interact.editor;
     if (!editor) return;
-    const styleKey = { b: "bold", i: "italic", u: "underline", x: "strike" }[key];
+    const styleKey = ({ b: "bold", i: "italic", u: "underline", x: "strike" } as Record<string, StyleFlag | undefined>)[key];
     if (styleKey) {
       applyTextStyle({ [styleKey]: !editor.style[styleKey] });
     }
@@ -2011,7 +2050,7 @@ async function main(): Promise<void> {
       : null;
   }
   /** Opens a file source as the document, asking for a password (and retrying) when it is encrypted. */
-  async function openSource(source: any, name: string, password = ""): Promise<void> {
+  async function openSource(source: Growable | Uint8Array, name: string, password = ""): Promise<void> {
     try {
       app.open(source, name, password);
       viewer.el.scrollTop = 0;
@@ -2039,7 +2078,7 @@ async function main(): Promise<void> {
    * Loads a PDF as a separate document (for inserting or replacing pages), asking for its password as needed.
    * Resolves to null when the password prompt is cancelled.
    */
-  async function loadPdfFile(file: File, verb: string): Promise<any> {
+  async function loadPdfFile(file: File, verb: string): Promise<Doc | null> {
     const bytes = new Uint8Array(await file.arrayBuffer());
     let password = "";
     let attempts = 0;
@@ -2152,7 +2191,7 @@ async function main(): Promise<void> {
     const first = targets[0];
     const last = targets[targets.length - 1];
     const bookmarks: Array<{ path: number[]; page: number; top: number | null }> = [];
-    const collectBookmarks = (items) => {
+    const collectBookmarks = (items: Bookmark[]) => {
       for (const item of items) {
         if (item.page >= first && item.page <= last) {
           bookmarks.push({
@@ -2202,7 +2241,7 @@ async function main(): Promise<void> {
   /** Inserts every page of the given PDFs at `at` (default: after the last selected page, else at the end). */
   async function insertFiles(files: File[], at?: number): Promise<void> {
     const insertAt = at ?? (app.selectedPages.size ? Math.max(...app.selectedPages) + 1 : app.doc.pageCount);
-    const docs: Array<{ f: File; doc: any }> = [];
+    const docs: Array<{ f: File; doc: Doc }> = [];
     try {
       for (const file of files) {
         const doc = await loadPdfFile(file, "insert pages from");
@@ -2229,16 +2268,21 @@ async function main(): Promise<void> {
    * and closes them. Resolves to false (with a toast) if it failed.
    */
   async function insertDocs(
-    docs: Array<{ name: string; doc: any }>,
+    docs: Array<{ name: string; doc: Doc }>,
     at: number,
     label: string,
     fromLabel: string,
   ): Promise<boolean> {
     let inserted = 0;
+    /** The documents not closed yet: each is closed exactly once, whether the insert succeeds or fails. */
+    const unclosed = new Set(docs.map((entry) => entry.doc));
+    const closeDoc = (doc: Doc) => {
+      if (unclosed.delete(doc)) doc.close();
+    };
     try {
       await app.mutate(label, { pages: "all", structure: true }, async () => {
         let pos = at;
-        const fieldFixes: any[] = [];
+        const fieldFixes: CopiedField[] = [];
         for (const { name, doc } of docs)
           try {
             const count = doc.pageCount;
@@ -2248,7 +2292,7 @@ async function main(): Promise<void> {
             pos += count;
             inserted += count;
           } finally {
-            doc.close();
+            closeDoc(doc);
           }
         if (fieldFixes.length) {
           const fixed = await reopenWithFieldValues(pdfium, app.doc.save(), fieldFixes);
@@ -2256,9 +2300,9 @@ async function main(): Promise<void> {
           fixed.close();
         }
       });
-    } catch (err: any) {
-      docs.forEach((entry) => entry.doc.close());
-      toast(err.message, "err", 5e3);
+    } catch (err) {
+      docs.forEach((entry) => closeDoc(entry.doc));
+      toast((err as Error).message, "err", 5e3);
       return false;
     }
     toast(
@@ -2486,7 +2530,7 @@ async function main(): Promise<void> {
     };
   }
   /** Changes an annotation’s style (width, dashes, fill, opacity, line ends) as one undoable step. */
-  const mutateAnnotStyle = (page: number, index: number, patch: any, label: string) =>
+  const mutateAnnotStyle = (page: number, index: number, patch: Partial<AnnotStyle>, label: string) =>
     app
       .mutate(label, { pages: [page] }, () => app.doc.setAnnotStyle(page, index, patch))
       .catch((err) => toast(err.message, "err"));
@@ -2495,13 +2539,13 @@ async function main(): Promise<void> {
    * outline, fill, width and dashes; lines width, dashes, arrowheads and direction; drawings width and dashes;
    * everything with a style also gets opacity.
    */
-  function styleItems(page: number, annot: any, canEdit: boolean): MenuItem[] {
+  function styleItems(page: number, annot: AnnotInfo, canEdit: boolean): MenuItem[] {
     const items: MenuItem[] = [];
     const subtype = annot.subtype;
     if (subtype === ANNOT.FREETEXT) {
       const freeText = annot.ft ? app.doc.readFreeText(page, annot.index) : null;
       if (!freeText) return items;
-      const restyle = (patch, label) =>
+      const restyle = (patch: Partial<FreeTextStyle>, label: string) =>
         textBoxes.update(page, annot.index, (data) => ({ ...data, style: { ...data.style, ...patch } }), label);
       items.push(
         colorRow("Text", PALETTES.pen, freeText.style.color, (color) => restyle({ color }, "Text color"), !canEdit),
@@ -2567,7 +2611,7 @@ async function main(): Promise<void> {
     if (!isShape && !isLine && !isInk && !isMarkup) return items;
     const style = app.doc.annotStyle(page, annot.index);
     if (!style) return items;
-    const setStyle = (patch, label) => mutateAnnotStyle(page, annot.index, patch, label);
+    const setStyle = (patch: Partial<AnnotStyle>, label: string) => mutateAnnotStyle(page, annot.index, patch, label);
     if (isShape) {
       items.push(
         colorRow(
@@ -2720,7 +2764,7 @@ async function main(): Promise<void> {
     return !locked || !!(perms & 16);
   };
   /** The objects that Copy/Cut would act on: the Move & resize selection or the selected annotation. */
-  function objectSelection(): { page: number; items: any[] } | null {
+  function objectSelection(): { page: number; items: ArrangeItem[] } | null {
     if (app.tool === "arrange" && arrange.sel && !arrange.cropping) {
       const items = arrange.selected();
       return items.length ? { page: arrange.sel.page, items } : null;
@@ -2746,7 +2790,8 @@ async function main(): Promise<void> {
       toast("This PDF’s permissions don’t allow removing objects", "warn");
       return null;
     }
-    const clip = arrange.clipOf(selection.page, selection.items);
+    const removable = cut ? selection.items.filter((item) => arrange.canDuplicate(item)) : [];
+    const clip = cut && !removable.length ? null : arrange.clipOf(selection.page, selection.items);
     if (!clip) {
       toast("Only annotations and pictures can be copied", "warn");
       return null;
@@ -2778,7 +2823,6 @@ async function main(): Promise<void> {
       );
     });
     if (cut) {
-      const removable = selection.items.filter((item) => arrange.canDuplicate(item));
       arrange
         .removeItems(
           selection.page,
@@ -2880,7 +2924,7 @@ async function main(): Promise<void> {
     }
   }
   /** Cut, Copy and Paste entries for the object menus. */
-  const clipboardItems = (clip: any, canEdit: boolean): MenuItem[] => {
+  const clipboardItems = (clip: ObjClip | null, canEdit: boolean): MenuItem[] => {
     const selection = objectSelection();
     const copyable = !!selection && selection.items.some((item) => arrange.canDuplicate(item));
     return [
@@ -2912,7 +2956,7 @@ async function main(): Promise<void> {
     clientY: number,
     anchor?: HTMLElement,
   ): Promise<void> {
-    const annot = app.doc.annots(page).find((a) => a.index === index);
+    const annot = app.doc.annots(page).find((a: AnnotInfo) => a.index === index);
     if (!annot) return;
     const clip = await getObjClip();
     app.selectedAnnot = { page, index };
@@ -2928,7 +2972,7 @@ async function main(): Promise<void> {
         ? "Signature"
         : isFreeText && annot.ft?.tip
           ? "Callout"
-          : annot.subtype === ANNOT.LINE && app.doc.annotStyle(page, index)?.ends?.some((end) => end !== "None")
+          : annot.subtype === ANNOT.LINE && app.doc.annotStyle(page, index)?.ends?.some((end: LineEnd) => end !== "None")
             ? "Arrow"
             : ANNOT_NAMES[annot.subtype] || "Annotation";
     const view = viewer.views[page];
@@ -3054,7 +3098,8 @@ async function main(): Promise<void> {
     if (count === 1) {
       const item = items[0];
       menu.push({ heading: item.label });
-      const annot = item.kind === "annot" ? app.doc.annots(page).find((a) => a.index === item.annot) : undefined;
+      const annot =
+        item.kind === "annot" ? app.doc.annots(page).find((a: AnnotInfo) => a.index === item.annot) : undefined;
       if (annot) {
         const view = viewer.views[page];
         if (annot.subtype === ANNOT.FREETEXT && interact.textbox && view) {
@@ -3081,7 +3126,7 @@ async function main(): Promise<void> {
           menu.push("sep", ...styleRows);
         }
       } else if (item.label === "Link") {
-        const link = interact.links?.of(page).find((l) => l.index === item.annot);
+        const link = interact.links?.of(page).find((l: LinkInfo) => l.index === item.annot);
         if (link && interact.links) {
           menu.push({ label: "Edit link…", disabled: !canEdit, run: () => interact.links.editDialog(page, link) });
         }
@@ -3103,14 +3148,14 @@ async function main(): Promise<void> {
       }
       menu.push("sep");
     } else menu.push({ heading: `${count} objects` });
-    const align = (where) => arrange.align(where);
+    const align = (where: AlignEdge) => arrange.align(where);
     menu.push(
       chipRow(
         count > 1 ? "Align" : "Align to page",
         [
-          { text: "Left", label: count > 1 ? "Align left edges" : "Page’s left edge", v: "left" },
-          { text: "Centre", label: count > 1 ? "Align centres" : "Centre on the page", v: "hcenter" },
-          { text: "Right", label: count > 1 ? "Align right edges" : "Page’s right edge", v: "right" },
+          { text: "Left", label: count > 1 ? "Align left edges" : "Page’s left edge", v: "left" as AlignEdge },
+          { text: "Centre", label: count > 1 ? "Align centres" : "Centre on the page", v: "hcenter" as AlignEdge },
+          { text: "Right", label: count > 1 ? "Align right edges" : "Page’s right edge", v: "right" as AlignEdge },
         ],
         () => false,
         align,
@@ -3119,9 +3164,9 @@ async function main(): Promise<void> {
       chipRow(
         "",
         [
-          { text: "Top", label: count > 1 ? "Align tops" : "Page’s top", v: "top" },
-          { text: "Middle", label: count > 1 ? "Align middles" : "Centre on the page vertically", v: "vmiddle" },
-          { text: "Bottom", label: count > 1 ? "Align bottoms" : "Page’s bottom", v: "bottom" },
+          { text: "Top", label: count > 1 ? "Align tops" : "Page’s top", v: "top" as AlignEdge },
+          { text: "Middle", label: count > 1 ? "Align middles" : "Centre on the page vertically", v: "vmiddle" as AlignEdge },
+          { text: "Bottom", label: count > 1 ? "Align bottoms" : "Page’s bottom", v: "bottom" as AlignEdge },
         ],
         () => false,
         align,
@@ -3247,7 +3292,7 @@ async function main(): Promise<void> {
   }
   /** Right-click menu for a link with Select. */
   function linkMenu(page: number, index: number, clientX: number, clientY: number, anchor?: HTMLElement): void {
-    const link = interact.links?.of(page).find((l) => l.index === index);
+    const link = interact.links?.of(page).find((l: LinkInfo) => l.index === index);
     if (!link || !interact.links) return;
     const { locked, perms } = app.limits;
     const canEdit = !locked || !!(perms & 8);
@@ -3370,7 +3415,7 @@ async function main(): Promise<void> {
         annotPress = {
           t: window.setTimeout(() => {
             if (!annotPress || menuOpen()) return;
-            const page = +annotPress.el.closest(".page").dataset.index;
+            const page = +annotPress.el.closest<HTMLElement>(".page")!.dataset.index!;
             if (annotPress.el.classList.contains("abox")) {
               annotMenu(page, +annotPress.el.dataset.annot, annotPress.x, annotPress.y, annotPress.el);
             } else {
@@ -3399,7 +3444,7 @@ async function main(): Promise<void> {
   for (const type of ["pointermove", "pointerup", "pointercancel"] as const)
     viewer.el.addEventListener(type, cancelAnnotPress, true);
   /** The page thumbnail containing an element, if any. */
-  const thumbOf = (el: any): any => el?.closest?.(".thumb");
+  const thumbOf = (el: EventTarget | null) => (el as Element | null)?.closest?.<HTMLElement>(".thumb");
   thumbs.list.addEventListener("contextmenu", (event) => {
     const thumb = thumbOf(event.target);
     if (thumb) {
@@ -3451,8 +3496,8 @@ async function main(): Promise<void> {
   for (const type of ["pointermove", "pointerup", "pointercancel"] as const)
     thumbs.list.addEventListener(type, cancelThumbPress);
   /** Whether keys and clipboard events belong to a text field (or the text editor is open). */
-  const isTypingIn = (el: any): boolean =>
-    !!el?.closest?.("input,textarea,select,[contenteditable]") || !!interact.editor;
+  const isTypingIn = (el: EventTarget | null): boolean =>
+    !!(el as Element | null)?.closest?.("input,textarea,select,[contenteditable]") || !!interact.editor;
   /** Whether focus is in the page sidebar. */
   const thumbsFocused = (): boolean => !!document.activeElement?.closest?.("#thumbs");
   document.addEventListener("copy", (event) => {
@@ -3673,7 +3718,7 @@ async function main(): Promise<void> {
   });
   /** Tool name by its single-key shortcut (lower case). */
   const TOOL_BY_KEY = Object.fromEntries(
-    (Object.entries(TOOL_INFO) as Array<[string, any]>).map(([tool, info]) => [info.key.toLowerCase(), tool]),
+    (Object.entries(TOOL_INFO) as Array<[string, ToolInfo]>).map(([tool, info]) => [info.key.toLowerCase(), tool]),
   );
   document.addEventListener("keydown", (event) => {
     const inField = (event.target as Element).closest<HTMLElement>("input,textarea,select,[contenteditable]");
@@ -3753,6 +3798,7 @@ async function main(): Promise<void> {
           return;
         }
         if (event.key === "Escape") {
+          event.preventDefault();
           crop.sel = null;
           crop.refresh();
           renderRibbon();
