@@ -1,4 +1,4 @@
-version v2.27.1
+version v2.27.2
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -59,4 +59,5 @@ update noticed ["vX.Y.Z · Update available","Margin v99.0.0 is availableReload"
 update window Margin v99.0.0 is available You have vX.Y.Z. Reload to update; your unsaved changes are kept. v99.0.0 A test release. Later Reload now
 after update reload ["Restored your unsaved changes to Welcome to Margin.pdf","Margin was updated to vX.Y.ZWhat’s new",true,"vX.Y.Z"]
 page fits the screen at every width [true,true,true,true,true,true,true]
+more button toggles its menu ["1:true","0:false","1:true","1:true","0:false","1:true"]
 errors []

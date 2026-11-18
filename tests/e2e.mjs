@@ -251,5 +251,16 @@ for (const w of [400, 700, 882, 960, 1024, 1100, 1280]) {
 }
 log('page fits the screen at every width', fits);
 
+// O. the More (⋯) button toggles its menu: click opens, click again closes, again opens (mouse and touch)
+const toggles = [];
+for (const touch of [false, true]) {
+  const c = await b.newContext({ viewport: { width: touch ? 700 : 1280, height: 800 }, isMobile: touch, hasTouch: touch }); const pg = await c.newPage();
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const press = () => (touch ? pg.locator('#btn-more').tap() : pg.locator('#btn-more').click()).then(() => pg.waitForTimeout(300));
+  for (let i = 0; i < 3; i++) { await press(); toggles.push((await pg.locator('.ctxmenu').count()) + ':' + await pg.locator('#btn-more').getAttribute('aria-expanded')); }
+  await c.close();
+}
+log('more button toggles its menu', toggles);
+
 log('errors', errors);
 await b.close();

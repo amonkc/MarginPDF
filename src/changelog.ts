@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.27.2",
+    date: "2026-11-18",
+    notes: ["Pressing the More button (⋯) again now closes its menu instead of opening it again."],
+  },
+  {
     version: "2.27.1",
     date: "2026-11-18",
     notes: ["Fixed the layout on tablets and unfolded phones in landscape (such as the Galaxy Z Fold): the top bar no longer runs off the screen and shrinks the whole app. At those widths, print, header & footer, watermark, protection, flatten and insert pages are in the More menu (⋯)."],
@@ -459,6 +464,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.27.1";
+const VERSION = "2.27.2";
 
 export { CHANGELOG, VERSION };

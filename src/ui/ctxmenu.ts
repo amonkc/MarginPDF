@@ -116,8 +116,29 @@ function openMenu(clientX: number, clientY: number, items: MenuItem[], returnFoc
     }
     e.stopPropagation();
   };
+  // A menu button (aria-haspopup) that opened the menu toggles it: pressing it again closes the menu, and the
+  // click that follows is swallowed so it doesn't open the menu straight back.
+  const toggle = returnFocus?.getAttribute("aria-haspopup") === "menu" ? returnFocus : null;
+  toggle?.setAttribute("aria-expanded", "true");
   const onOutsideDown = (e: PointerEvent) => {
-    if (!menu.contains(e.target as Node)) close();
+    if (menu.contains(e.target as Node)) return;
+    if (toggle?.contains(e.target as Node)) {
+      // only the click of this same press (the next click, if it comes soon)
+      const swallow = (ev: MouseEvent) => {
+        stop();
+        if (toggle.contains(ev.target as Node)) {
+          ev.stopImmediatePropagation();
+          ev.preventDefault();
+        }
+      };
+      const stop = () => {
+        document.removeEventListener("click", swallow, true);
+        clearTimeout(timer);
+      };
+      document.addEventListener("click", swallow, true);
+      const timer = setTimeout(stop, 1000);
+    }
+    close();
   };
   const openedAt = performance.now();
   const onBlurOrResize = () => close();
@@ -141,6 +162,7 @@ function openMenu(clientX: number, clientY: number, items: MenuItem[], returnFoc
       removeEventListener("blur", onBlurOrResize);
       removeEventListener("resize", onBlurOrResize);
       document.removeEventListener("scroll", onScroll, true);
+      toggle?.setAttribute("aria-expanded", "false");
       returnFocus?.focus({ preventScroll: true });
     }
   }
