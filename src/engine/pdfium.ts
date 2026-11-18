@@ -1,5 +1,6 @@
 import { init as ji } from '@embedpdf/pdfium';
 import type { WrappedPdfiumModule } from '@embedpdf/pdfium';
+import { DEFAULT_FT_BORDER_WIDTH } from './types';
 import type {
   AnnotInfo,
   AnnotStyle,
@@ -1293,7 +1294,8 @@ class Doc {
         else P.EPDFAnnot_ClearColor(annot, 0);
         if (data.style.fill) P.EPDFAnnot_SetColor(annot, 1, data.style.fill[0], data.style.fill[1], data.style.fill[2]);
         else P.EPDFAnnot_ClearColor(annot, 1);
-        P.FPDFAnnot_SetBorder(annot, 0, 0, data.style.border ? data.style.borderWidth : 0);
+        // Same width renderFreeText draws (`ap`), so viewers that redraw from /Border agree with it.
+        P.FPDFAnnot_SetBorder(annot, 0, 0, data.style.border ? data.style.borderWidth ?? DEFAULT_FT_BORDER_WIDTH : 0);
         setAnnotRect(lib, annot, rect);
         P.EPDFAnnot_SetRectangleDifferences(annot, data.box.l - rect.l, rect.t - data.box.t, rect.r - data.box.r, data.box.b - rect.b);
         if (data.tip) {
@@ -1331,7 +1333,7 @@ class Doc {
         } catch {
         }
         const box = annotRect(lib, annot), da = str("DA"), size = +(da.match(/([\d.]+)\s+Tf/)?.[1] || 12) || 12, rgbMatch = da.match(/([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg/), color: RGBA = rgbMatch ? [Math.round(+rgbMatch[1] * 255), Math.round(+rgbMatch[2] * 255), Math.round(+rgbMatch[3] * 255), 255] : [0, 0, 0, 255];
-        return { box, text: str("Contents"), style: { fontKey: "sarabun", size, color, fill: null, border: null, borderWidth: 1 } };
+        return { box, text: str("Contents"), style: { fontKey: "sarabun", size, color, fill: null, border: null, borderWidth: DEFAULT_FT_BORDER_WIDTH } };
       } finally {
         P.FPDFPage_CloseAnnot(annot);
       }
@@ -2176,8 +2178,8 @@ Q`);
     P.FPDFAnnot_SetAP(annot, 0, apPtr);
     lib.free(apPtr);
   }
-  /** Whether Margin drew this annotation's appearance itself (/MarginAP or /MarginFT); truthy PDFium bool. */
-  isDrawn(annot: number): number {
+  /** Whether Margin drew this annotation's appearance itself (/MarginAP or /MarginFT). */
+  isDrawn(annot: number): boolean {
     return this.P.FPDFAnnot_HasKey(annot, "MarginAP") || this.P.FPDFAnnot_HasKey(annot, "MarginFT");
   }
   /** Move an annotation by (dx, dy). Text markups and redaction marks can't move (false). */

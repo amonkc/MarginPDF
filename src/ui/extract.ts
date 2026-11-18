@@ -141,7 +141,7 @@ async function extractDialog(app: App, lib: Pdfium, initialPages: number[], save
   }
   const baseName = app.fileName.replace(/\.pdf$/i, ""), fileName = (pages: number[]) => pages.length === 1 ? `${baseName}_page${pages[0] + 1}.pdf` : `${baseName}_pages${formatPageRange(pages).replace(/, /g, "_")}.pdf`, files: ZipEntry[] = [];
   for (const pages of chosen) {
-    let out: Doc = lib.create();
+    let out = lib.create();
     try {
       if (!out.importIndices(app.doc, pages, 0)) throw new Error("Those pages could not be copied");
       const fields = copyFormFields(app.doc, pages, out, 0, /* @__PURE__ */ new Set());

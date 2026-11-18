@@ -129,7 +129,7 @@ async function applyHeaderFooter(app: App, settings: HeaderFooterSettings): Prom
 
 /** Renders a one-page copy of `page` with the header & footer applied, `widthPx` CSS pixels wide. */
 async function renderPreview(app: App, page: number, settings: HeaderFooterSettings, widthPx: number): Promise<{ img: ImageData; w: number; h: number; scale: number; inRange: boolean }> {
-  const { pages, first, total } = hfPages(app.doc.pageCount, settings), copy: Doc = app.lib.create();
+  const { pages, first, total } = hfPages(app.doc.pageCount, settings), copy = app.lib.create();
   try {
     copy.importIndices(app.doc, [page], 0);
     for (const slot of HF_SLOTS) removeById(copy, 0, "hf-" + slot);

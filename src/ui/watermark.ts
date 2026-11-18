@@ -2,7 +2,7 @@ import { outlineFont, removeById, insertMarkedObject, measureWithFont, FONTS, cr
 import { toast, modal, h } from './dom';
 import type { Child, ToastHandle } from './dom';
 import type { RGBA } from '../engine/types';
-import type { Doc, PageObjectInfo } from '../engine/pdfium';
+import type { Doc } from '../engine/pdfium';
 import type { App } from '../app';
 
 /** Watermark & background settings (stored in app settings). Opacity, scale in %, angle in degrees. */
@@ -115,8 +115,7 @@ async function textWidthAt100(settings: WatermarkSettings): Promise<number> {
 
 /** True if any page has a watermark or background. */
 function hasWatermark(app: App): boolean {
-  const doc: Doc = app.doc;
-  for (let page = 0; page < doc.pageCount; page++) if (doc.pageObjects(page).some((obj: PageObjectInfo) => obj.blockId === WATERMARK_ID || obj.blockId === BACKGROUND_ID)) return true;
+  for (let page = 0; page < app.doc.pageCount; page++) if (app.doc.pageObjects(page).some((obj) => obj.blockId === WATERMARK_ID || obj.blockId === BACKGROUND_ID)) return true;
   return false;
 }
 
@@ -244,7 +243,7 @@ async function watermarkDialog(app: App, initial: WatermarkSettings, saveSetting
   }, renderPreview = async () => {
     const gen = ++generation;
     pageLabel.textContent = `Page ${previewPage + 1} of ${pageCount}`;
-    const copy: Doc = app.lib.create();
+    const copy = app.lib.create();
     try {
       copy.importIndices(app.doc, [previewPage], 0);
       removeById(copy, 0, WATERMARK_ID);

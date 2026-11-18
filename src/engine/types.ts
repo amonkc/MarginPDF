@@ -35,6 +35,12 @@ export type AnnotInfo = {
 /** How an annotation is drawn: stroke width (pt), dashed or solid, interior fill, opacity 0–1, line arrowheads. */
 export type AnnotStyle = { width: number; dashed: boolean; fill: RGBA | null; opacity: number; ends?: [LineEnd, LineEnd] };
 
+/**
+ * Border width (pt) of a Margin text box whose style has a border colour but no `borderWidth` (the width the
+ * text box editor gives new boxes).
+ */
+export const DEFAULT_FT_BORDER_WIDTH = 1;
+
 /** Style of a Margin text box / callout. */
 export type FreeTextStyle = {
   fontKey: string;
@@ -42,6 +48,7 @@ export type FreeTextStyle = {
   color: RGBA;
   fill: RGBA | null;
   border: RGBA | null;
+  /** border width in points when `border` is set; DEFAULT_FT_BORDER_WIDTH when missing */
   borderWidth?: number;
   [k: string]: unknown;
 };
