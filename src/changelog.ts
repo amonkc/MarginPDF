@@ -10,6 +10,14 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.26.0",
+    date: "2026-11-18",
+    notes: [
+      "Unsaved changes now survive a refresh: Margin keeps them in your browser and brings the document back with its undo history. If a tab with unsaved changes is closed or crashes, Margin offers them back the next time it opens.",
+      "The changes stay on your device, in this browser only, and are removed as soon as you save, discard them or open another file. Password-protected documents ask for their password when they come back; the password itself is never stored.",
+    ],
+  },
+  {
     version: "2.25.4",
     date: "2026-11-18",
     notes: ["Move & resize now selects the object you can see in front: clicking an image that covers text picks the image, not the text behind it. To reach something hidden behind, Alt-click (Option-click on a Mac) at the same spot."],
@@ -438,6 +446,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.25.4";
+const VERSION = "2.26.0";
 
 export { CHANGELOG, VERSION };

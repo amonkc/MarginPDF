@@ -1,6 +1,9 @@
 import "./style.css";
 import "./ui-fonts";
 import { App, FULL_SAVE_MAX } from "./app";
+import type { Snapshot } from "./app";
+import { Session } from "./session";
+import type { SessionRecord, StoredSession } from "./session";
 import { CHANGELOG, VERSION } from "./changelog";
 import { loadAsset } from "./engine/assets";
 import { Growable } from "./engine/growable";
@@ -3602,6 +3605,7 @@ async function main(): Promise<void> {
       if (filename === app.editedName) {
         app.dirty = false;
         refreshTopBar();
+        session.schedule();
       }
       toast(`Saved ${filename}`);
     } catch {
@@ -3918,22 +3922,79 @@ async function main(): Promise<void> {
       });
     }
   });
+  // Unsaved changes are kept in the browser (session.ts), so leaving only needs a warning when that failed.
+  const session = new Session(app);
+  (window as unknown as { __margin: Record<string, unknown> }).__margin.session = session;
+  session.onTooLarge = () => toast("This document is too large to keep through a refresh. Save it before you close the tab.", "warn", 8e3);
   window.addEventListener("beforeunload", (event) => {
-    if (app.dirty) {
-      event.preventDefault();
-    }
+    if (session.atRisk) event.preventDefault();
+    else session.flush();
   });
-  try {
-    const welcome = new Uint8Array(await fetchAsset("welcome.pdf"));
-    app.open(welcome, "Welcome to Margin.pdf");
-  } catch {
-    const blank = pdfium.create();
-    blank.insertBlank(0, 612, 792);
-    app.open(blank.save(), "Untitled.pdf");
-    blank.close();
+  /** Reopens a stored session; resolves to false if it couldn't be (or its password prompt was cancelled). */
+  async function resumeSession(stored: StoredSession): Promise<boolean> {
+    const { record, bufs } = stored, buf = (id: number) => bufs.get(id)!;
+    const snap = (s: SessionRecord["undo"][number]): Snapshot => ({ label: s.label, file: buf(s.buf), len: s.len, change: s.change });
+    const state = { file: buf(record.buf), cur: record.cur, name: record.name, undo: record.undo.map(snap), redo: record.redo.map(snap), page: record.page, mustRewrite: record.mustRewrite };
+    if (record.sid === session.sid) await session.adopt(stored);
+    for (let password = "", attempt = 0; ; attempt++) {
+      try {
+        app.resume(state, password);
+        break;
+      } catch (err) {
+        if (!(err instanceof PdfError && err.code === 4)) {
+          toast(`Your unsaved changes to ${record.name} couldn’t be restored: ${(err as Error).message}`, "err", 8e3);
+          return false;
+        }
+        document.getElementById("boot")?.remove(); // the prompt can’t sit behind the loading screen
+        const entered = await askPassword(record.name, attempt > 0, "restore");
+        if (entered == null) return false;
+        password = entered;
+      }
+    }
+    if (record.sid !== session.sid) {
+      await session.flush();
+      await session.remove(record.sid);
+    }
+    requestAnimationFrame(() => viewer.scrollToPage(app.currentPage));
+    toast(`Restored your unsaved changes to ${record.name}`, "ok", 4e3);
+    return true;
+  }
+  /** Offers back unsaved changes left by a tab that was closed or crashed. */
+  async function offerOrphan(record: SessionRecord): Promise<void> {
+    const ago = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }), mins = Math.round((record.updated - Date.now()) / 60000);
+    const when = mins > -60 ? ago.format(mins, "minute") : mins > -1440 ? ago.format(Math.round(mins / 60), "hour") : ago.format(Math.round(mins / 1440), "day");
+    const choice = await modal({
+      title: "Unsaved changes found",
+      body: h("p", { class: "modal-text", text: `${record.name} was closed with unsaved changes (last edited ${when}). Restore them?` }),
+      actions: [
+        { id: "discard", label: "Discard" },
+        { id: "restore", label: "Restore", primary: true },
+      ],
+    });
+    if (choice === "discard") await session.remove(record.sid).catch(() => {});
+    else if (choice === "restore") {
+      const stored = await session.read(record.sid).catch(() => null);
+      if (stored) await resumeSession(stored);
+    }
+  }
+  const own = await session.start();
+  if (!own || !(await resumeSession(own))) {
+    try {
+      const welcome = new Uint8Array(await fetchAsset("welcome.pdf"));
+      app.open(welcome, "Welcome to Margin.pdf");
+    } catch {
+      const blank = pdfium.create();
+      blank.insertBlank(0, 612, 792);
+      app.open(blank.save(), "Untitled.pdf");
+      blank.close();
+    }
   }
   app.setTool("select");
-  $("#boot").remove();
+  document.getElementById("boot")?.remove();
+  if (!own) {
+    const orphan = await session.orphan();
+    if (orphan) await offerOrphan(orphan);
+  }
   loadFont(fontByKey("sarabun")).catch(() => {});
 }
 main();

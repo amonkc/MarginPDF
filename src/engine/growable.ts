@@ -28,6 +28,8 @@ function allocBuffer(size: number, preferredMax: number): ArrayBuffer {
 class Growable {
   buf: ArrayBuffer;
   len: number;
+  /** Lowest offset written since the session store last copied this buffer (see session.ts). */
+  lowWater = 0;
   constructor(buf: ArrayBuffer, len: number) {
     this.buf = buf;
     this.len = len;
@@ -75,6 +77,7 @@ class Growable {
     }
     new Uint8Array(this.buf, offset, bytes.length).set(bytes);
     this.len = end;
+    this.lowWater = Math.min(this.lowWater, offset);
   }
 }
 

@@ -13,7 +13,7 @@ const log = (k, v) => { const line = k + ' ' + (typeof v === 'string' ? v : JSON
 const r1 = (x) => Math.round(x * 10) / 10;
 
 const b = await chromium.launch();
-const page = await b.newPage({ viewport: { width: 1440, height: 900 } });
+const mainCtx = await b.newContext({ viewport: { width: 1440, height: 900 } }); const page = await mainCtx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => m.type() === 'error' && !/TUNNEL|fonts\.g|net::ERR/.test(m.text()) && errors.push(m.text()));
@@ -208,6 +208,26 @@ const cdp = await ctx.newCDPSession(ph);
 const t = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
 await t('touchStart', c.x, c.y); for (let i = 1; i <= 10; i++) { await t('touchMove', c.x + 6 * i, c.y + 8 * i); await ph.waitForTimeout(16); } await t('touchEnd'); await ph.waitForTimeout(800);
 log('touch drag moved', await ph.evaluate((l0) => Math.round(window.__margin.app.doc.annots(0).at(-1).rect.l - l0) > 50, c.l));
+
+// L. unsaved changes survive a refresh (with their undo history), and a closed tab's changes are offered back
+const state = () => page.evaluate(() => { const { app } = window.__margin; return [app.fileName, app.dirty, app.doc.pageCount, app.doc.annots(0).length, app.undoStack.length, app.undoLabel]; });
+const before = await state(); await page.waitForTimeout(1000);
+await page.reload(); await page.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await page.waitForTimeout(800);
+const after = await state();
+log('refresh keeps unsaved changes', [JSON.stringify(after.slice(0, 4)) === JSON.stringify(before.slice(0, 4)), after[0], after[1], after[5] === before[5], before[4], after[4]]);
+await page.keyboard.press('Escape'); await page.keyboard.press('Control+z'); await page.waitForTimeout(800);
+log('undo after refresh', (await state())[4] === after[4] - 1);
+const other = await page.context().newPage(); await other.goto(url); await other.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await other.waitForTimeout(800);
+log('second open tab: nothing offered', [await other.locator('.modal').count(), await other.evaluate(() => window.__margin.app.dirty)]);
+await other.close(); const kept = await state(); await page.waitForTimeout(1000); await page.close();
+const next = await other.context().newPage(); next.on('pageerror', (e) => errors.push('next: ' + e.message));
+await next.goto(url); await next.waitForSelector('.modal', { timeout: 90000 });
+log('closed tab offered', (await next.locator('.modal').innerText()).replace(/\(last edited [^)]*\)/, '(…)').replace(/\s+/g, ' '));
+await next.locator('.modal .btn.primary').click(); await next.waitForTimeout(1500);
+const back = await next.evaluate(() => { const { app } = window.__margin; return [app.fileName, app.dirty, app.doc.pageCount, app.doc.annots(0).length, app.undoStack.length, app.undoLabel]; });
+log('restored in new tab', JSON.stringify(back) === JSON.stringify(kept));
+await next.reload(); await next.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await next.waitForTimeout(800);
+log('adopted session survives its refresh', [await next.locator('.modal').count(), await next.evaluate(() => window.__margin.app.dirty)]);
 
 log('errors', errors);
 await b.close();

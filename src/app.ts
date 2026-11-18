@@ -332,6 +332,20 @@ class App {
     const change = snapshot.change!;
     this.emit(this.doc.pageCount !== pageCountBefore || change.structure || change.pages === "all" ? { pages: "all", structure: change.structure || this.doc.pageCount !== pageCountBefore } : { pages: [...change.pages] });
   }
+  /**
+   * Reopens unsaved work kept by the session store: the file at length `cur`, its undo/redo history and page.
+   * Throws like {@link App.open} (e.g. a PdfError asking for the password).
+   */
+  resume(state: { file: Growable; cur: number; name: string; undo: Snapshot[]; redo: Snapshot[]; page: number; mustRewrite: boolean }, password = ""): void {
+    this.open(state.file, state.name, password);
+    if (state.cur !== state.file.len) this.restore({ file: state.file, len: state.cur });
+    this.undoStack = state.undo;
+    this.redoStack = state.redo;
+    this.mustRewrite = state.mustRewrite;
+    this.currentPage = Math.min(state.page, Math.max(0, this.doc.pageCount - 1));
+    this.dirty = true;
+    this.emit({ pages: "all", structure: true });
+  }
   /** Replaces the document bytes without recording history. */
   replaceDoc(bytes: Uint8Array): void {
     this.restore({ file: Growable.from(bytes), len: bytes.length });

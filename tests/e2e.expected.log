@@ -1,4 +1,4 @@
-version v2.25.4
+version v2.26.0
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -49,4 +49,10 @@ text box border default [null,1]
 print empty range message Enter the pages
 click picks front, alt-click behind ["Image","Text"]
 touch drag moved true
+refresh keeps unsaved changes [true,"Welcome to Margin.pdf",true,true,16,2]
+undo after refresh true
+second open tab: nothing offered [0,false]
+closed tab offered Unsaved changes found Welcome to Margin.pdf was closed with unsaved changes (…). Restore them? Discard Restore
+restored in new tab true
+adopted session survives its refresh [0,true]
 errors []
