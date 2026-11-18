@@ -242,5 +242,14 @@ await next.locator('.modal .btn.primary').click(); await next.waitForSelector('#
 const restoredMsg = vx(await next.locator('#toast').innerText()); await next.waitForTimeout(4500);
 log('after update reload', [restoredMsg, vx(await next.locator('#toast').innerText()), await next.evaluate(() => window.__margin.app.dirty), vx(await next.locator('#btn-version').innerText())]);
 
+// N. no width makes the page wider than the screen (phones then zoom the whole app out), e.g. a Galaxy Z Fold in landscape
+const fits = [];
+for (const w of [400, 700, 882, 960, 1024, 1100, 1280]) {
+  const c = await b.newContext({ viewport: { width: w, height: 700 }, isMobile: w < 1100, hasTouch: w < 1100 }); const pg = await c.newPage();
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 });
+  fits.push(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth && innerWidth === visualViewport.width)); await c.close();
+}
+log('page fits the screen at every width', fits);
+
 log('errors', errors);
 await b.close();

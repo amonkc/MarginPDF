@@ -72,6 +72,8 @@ button {
 #app {
   height: 100%;
   display: grid;
+  /* never wider than the screen: an overflowing bar would make phone browsers zoom the whole page out */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--bar-h) var(--ribbon-h) 1fr 26px;
 }
 .bar {
@@ -82,6 +84,7 @@ button {
   background: var(--chrome);
   border-bottom: 1px solid var(--line);
   min-width: 0;
+  overflow: hidden;
 }
 .brand .mark,
 .boot .mark {
@@ -1607,6 +1610,18 @@ select.fld option {
   }
   #btn-comments {
     display: grid;
+  }
+}
+/* Tablets and unfolded phones in landscape (e.g. Galaxy Z Fold, ~880 px): the full top bar needs ~1010 px, so
+   the document buttons that the More menu (⋯) also has go there. */
+@media (max-width: 1040px) {
+  #btn-merge,
+  #btn-wm,
+  #btn-flatten,
+  #btn-print,
+  #btn-hf,
+  #btn-protect {
+    display: none;
   }
 }
 @media (max-width: 860px) {
