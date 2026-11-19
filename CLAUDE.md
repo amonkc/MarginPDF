@@ -15,7 +15,9 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
   regains focus and every 30 min; marks the version button and offers Reload.
 - `src/changelog.ts` — `CHANGELOG` and `VERSION` (shown in the app).
 - `src/vendor/harfbuzz/` — harfbuzzjs 1.6.3 with one change (explicit init); see its README.
-- `public/` — pdfium.wasm, harfbuzz.wasm, fonts, spelling dictionary, welcome.pdf.
+- `public/` — pdfium.wasm, harfbuzz.wasm, fonts, spelling dictionary, welcome.pdf (content-hashed into `web/a/`).
+- `site/` — favicon and home-screen icons ("M." in Fraunces ExtraBold as outlines), copied to the site root and
+  linked by `scripts/web.mjs`.
 
 ## Build, test, release
 - `npm run build` (alias `build:web`, which Cloudflare runs) → `web/`: Vite build plus `scripts/web.mjs` (content-hashed

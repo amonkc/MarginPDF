@@ -55,5 +55,10 @@ const shown = await page.locator('pre.licences').textContent({ timeout: 10000 })
 console.log('licences in app:', shown.length > 50000 ? 'ok' : 'short', shown.slice(0, 39));
 const r = await page.request.get(origin + '/licenses/THIRD_PARTY_NOTICES.txt'); console.log('licences:', r.status(), (await r.text()).slice(0, 39));
 console.log('third-party requests:', [...foreign]);
+// site icons: linked from the page and served from the root
+const iconLinks = await page.evaluate(() => [...document.querySelectorAll('link[rel~=icon], link[rel=apple-touch-icon]')].map((l) => l.getAttribute('href')));
+const iconStatus = [];
+for (const href of iconLinks) { const r = await page.request.get(origin + href); iconStatus.push(href.replace(/\?v=\w+/, '') + ' ' + r.status() + ' ' + r.headers()['content-type']); }
+console.log('icons:', iconStatus.join(', '));
 console.log('errors', errors);
 await b.close();

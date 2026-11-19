@@ -3,7 +3,8 @@
 //    the list), so every asset can be cached by browsers and Cloudflare for a year and is downloaded once;
 //  - writes web/_headers: long caching for hashed files, revalidation for index.html, security headers, and a
 //    text content type for the spelling dictionary so Cloudflare compresses it;
-//  - copies the third-party licence notices (public/licenses/) to web/licenses/ as well.
+//  - copies the third-party licence notices (public/licenses/) to web/licenses/ as well;
+//  - copies the site icons (site/: favicon, home-screen icons) to the site root, where browsers look for them.
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -26,7 +27,22 @@ for (const src of files) {
 }
 const indexPath = path.join(out, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf8');
-const tag = `<script type="application/json" id="margin-assets">${JSON.stringify(map)}</script>`;
+// Site icons keep fixed names (browsers ask for /favicon.ico by themselves); a content hash in the links
+// makes browsers fetch a changed icon.
+const siteHash = crypto.createHash('sha256');
+for (const f of fs.readdirSync('site').sort()) {
+  const data = fs.readFileSync(path.join('site', f));
+  siteHash.update(data);
+  fs.writeFileSync(path.join(out, f), data);
+}
+const v = siteHash.digest('hex').slice(0, 8);
+const icons = [
+  `<link rel="icon" href="/favicon.ico?v=${v}" sizes="32x32">`,
+  `<link rel="icon" href="/favicon.svg?v=${v}" type="image/svg+xml">`,
+  `<link rel="icon" href="/icon-192.png?v=${v}" sizes="192x192" type="image/png">`,
+  `<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=${v}">`,
+].join('\n');
+const tag = `${icons}\n<script type="application/json" id="margin-assets">${JSON.stringify(map)}</script>`;
 html = html.replace('</head>', `${tag}\n</head>`);
 fs.writeFileSync(indexPath, html);
 
@@ -72,6 +88,12 @@ const headers = `/*
 
 /licenses/*
   Cache-Control: public, max-age=86400
+/favicon.*
+  Cache-Control: public, max-age=604800
+/icon-*
+  Cache-Control: public, max-age=604800
+/apple-touch-icon.png
+  Cache-Control: public, max-age=604800
 `;
 fs.writeFileSync(path.join(out, '_headers'), headers);
 
