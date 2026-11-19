@@ -1955,6 +1955,13 @@ async function main(): Promise<void> {
     $("#page-indicator").textContent = `${page + 1} / ${app.doc.pageCount}`;
   };
   thumbs.onGo = (page) => viewer.scrollToPage(page);
+  thumbs.onPageAction = (page, action) => {
+    if (!app.selectedPages.has(page)) {
+      app.selectedPages = new Set([page]);
+      thumbs.mark();
+    }
+    void pageAction(action);
+  };
   thumbs.onSelection = () => {};
   thumbs.onInsertBlank = (at) => {
     const refPage = Math.max(0, Math.min(app.doc.pageCount - 1, at > 0 ? at - 1 : 0));

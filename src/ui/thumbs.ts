@@ -28,6 +28,9 @@ class Thumbs {
   };
   onInsertFrom: (at: number, files?: File[]) => void = () => {
   };
+  /** A page's own buttons (rotate, delete): acts on the selection if the page is in it, else on that page. */
+  onPageAction: (page: number, action: "rotl" | "rotr" | "delete") => void = () => {
+  };
   constructor(el: HTMLElement, app: App) {
     this.el = el;
     this.app = app;
@@ -50,7 +53,14 @@ class Thumbs {
       const { w, h: pageH } = this.app.doc.pageSize(page), canvas = h("canvas", { class: "tcanvas" }), width = THUMB_W, height = Math.round(width * (pageH / w));
       canvas.style.width = width + "px";
       canvas.style.height = height + "px";
-      const wrap = h("div", { class: "thumb", role: "option", tabindex: "0", draggable: "true", "data-index": String(page), "aria-label": `Page ${page + 1}` }, h("div", { class: "tframe" }, canvas), h("span", { class: "tlabel", text: String(page + 1) }));
+      // Rotate and delete sit on the page itself, shown on hover and on selected pages (see .tactions).
+      const action = (act: "rotl" | "rotr" | "delete", iconName: string, label: string) =>
+        h("button", { class: "tact" + (act === "delete" ? " danger" : ""), type: "button", tabindex: "-1", draggable: "false", title: label, "aria-label": `${label}, page ${page + 1}`, "data-act": act, onclick: (e: MouseEvent) => {
+          e.stopPropagation();
+          this.onPageAction(page, act);
+        } }, icon(iconName));
+      const actions = h("div", { class: "tactions" }, action("rotl", "rotl", "Rotate left"), action("rotr", "rotr", "Rotate right"), action("delete", "trash", "Delete"));
+      const wrap = h("div", { class: "thumb", role: "option", tabindex: "0", draggable: "true", "data-index": String(page), "aria-label": `Page ${page + 1}` }, h("div", { class: "tframe" }, canvas, actions), h("span", { class: "tlabel", text: String(page + 1) }));
       wrap.addEventListener("click", (e) => this.click(page, e));
       wrap.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -216,10 +226,10 @@ class Thumbs {
   }
 }
 
-/** The toolbar of page actions under the thumbnails; `run` receives the action id (e.g. "rotl", "delete"). */
+/** The toolbar of page actions above the thumbnails (rotate and delete are on each page); `run` gets the action id. */
 function pageActions(run: (action: string) => void): HTMLElement {
   const button = (action: string, iconName: string, label: string) => h("button", { class: "iconbtn", type: "button", title: label, "aria-label": label, "data-act": action, onclick: () => run(action) }, icon(iconName));
-  return h("div", { class: "page-actions" }, button("rotl", "rotl", "Rotate left"), button("rotr", "rotr", "Rotate right"), button("insert", "plus", "Insert blank page after"), button("merge", "merge", "Insert pages from other PDFs"), button("copy", "copy", "Copy selected pages (Ctrl+C)"), button("paste", "paste", "Paste copied pages after the selected page (Ctrl+V)"), button("extract", "extract", "Extract or split pages"), button("delete", "trash", "Delete selected pages"));
+  return h("div", { class: "page-actions" }, button("insert", "plus", "Insert blank page after"), button("merge", "merge", "Insert pages from other PDFs"), button("copy", "copy", "Copy selected pages (Ctrl+C)"), button("paste", "paste", "Paste copied pages after the selected page (Ctrl+V)"), button("extract", "extract", "Extract or split pages"));
 }
 
 export { pageActions, Thumbs };

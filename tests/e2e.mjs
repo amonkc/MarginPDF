@@ -325,5 +325,33 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// R. rotate and delete on each page thumbnail: shown on hover or selection; act on the selection if the page is in it
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 800 } }); const pg = await c.newPage();
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(500);
+  const rot = () => pg.evaluate(() => { const d = window.__margin.app.doc; return Array.from({ length: d.pageCount }, (_, i) => d.pageSize(i).w > d.pageSize(i).h ? 'L' : 'P').join(''); });
+  const shown = (i) => pg.locator('.thumb').nth(i).locator('.tactions').evaluate((e) => getComputedStyle(e).opacity === '1');
+  const steps = [['start', await rot(), await shown(0), await shown(1)]];
+  await pg.locator('.thumb').nth(1).hover(); await pg.waitForTimeout(200); steps.push(['hover page 2', await shown(1)]);
+  await pg.locator('.thumb').nth(1).locator('[data-act=rotr]').click(); await pg.waitForTimeout(400);
+  steps.push(['rotate page 2', await rot(), await pg.evaluate(() => [...window.__margin.app.selectedPages].join())]);
+  await pg.locator('.thumb').nth(0).click(); await pg.locator('.thumb').nth(2).click({ modifiers: ['Control'] }); await pg.waitForTimeout(200);
+  await pg.locator('.thumb').nth(2).hover(); await pg.locator('.thumb').nth(2).locator('[data-act=rotl]').click(); await pg.waitForTimeout(400);
+  steps.push(['rotate selection 1+3', await rot()]);
+  await pg.locator('.thumb').nth(1).hover(); await pg.locator('.thumb').nth(1).locator('[data-act=delete]').click(); await pg.waitForSelector('.modal');
+  steps.push(['delete page 2 asks', (await pg.locator('.modal h2, .modal .modal-title').first().innerText()).trim()]);
+  await pg.locator('.modal .btn', { hasText: 'Cancel' }).click(); await pg.waitForTimeout(200);
+  steps.push(['toolbar', await pg.locator('.page-actions [data-act]').evaluateAll((e) => e.map((x) => x.dataset.act).join())]);
+  for (const st of steps) log('page buttons ' + st[0], st.slice(1));
+  await c.close();
+  const t = await b.newContext({ ...devices['Pixel 7'] }); const tp = await t.newPage();
+  await tp.goto(url); await tp.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await tp.waitForTimeout(400);
+  await tp.locator('#btn-pages').tap(); await tp.waitForTimeout(400);
+  const vis = (i) => tp.locator('.thumb').nth(i).locator('.tactions').evaluate((e) => getComputedStyle(e).opacity === '1');
+  const before = [await vis(0), await vis(1)]; await tp.locator('.thumb').nth(1).tap(); await tp.waitForTimeout(300);
+  log('page buttons on touch: only on the selected page', [before, [await vis(0), await vis(1)]]);
+  await t.close();
+}
+
 log('errors', errors);
 await b.close();

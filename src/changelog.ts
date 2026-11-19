@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.31.0",
+    date: "2026-11-19",
+    notes: ["Rotate and delete are now on the pages themselves in the Pages panel: hover over a page (or select it, on touch screens) for rotate left, rotate right and delete. If the page is part of a selection, they act on all the selected pages."],
+  },
+  {
     version: "2.30.0",
     date: "2026-11-19",
     notes: ["Margin has its own icon: an “M.” in the Margin lettering, shown on the browser tab, in bookmarks and when you add Margin to a phone’s home screen. On Android, the browser bar takes Margin’s dark colour."],
@@ -484,6 +489,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.30.0";
+const VERSION = "2.31.0";
 
 export { CHANGELOG, VERSION };

@@ -761,11 +761,70 @@ button {
   outline-offset: 0;
 }
 .tframe {
+  position: relative;
   background: #fff;
   box-shadow: 0 1px 2px #0006;
   line-height: 0;
   border: 2px solid transparent;
   border-radius: 2px;
+}
+/* A page's own rotate / delete buttons: on hover (pointer devices), on selected pages and on keyboard focus. */
+.tactions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 7px;
+  background: #1b202be6;
+  box-shadow: 0 2px 8px #0006;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s;
+}
+.thumb.sel .tactions,
+.thumb:focus-visible .tactions {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: hover) {
+  .thumb:hover .tactions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.thumb.dragging .tactions {
+  opacity: 0;
+}
+.tact {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+.tact .ic {
+  width: 15px;
+  height: 15px;
+}
+.tact:hover {
+  background: #ffffff1f;
+}
+.tact.danger:hover {
+  color: #fff;
+  background: #b4361f;
+}
+@media (hover: none) {
+  .tact {
+    width: 32px;
+    height: 32px;
+  }
 }
 .tcanvas {
   display: block;
