@@ -1749,8 +1749,45 @@ async function main(): Promise<void> {
       button,
     );
   });
-  $("#btn-pages").addEventListener("click", () => document.body.classList.toggle("show-thumbs"));
-  $("#btn-comments").addEventListener("click", () => document.body.classList.toggle("show-comments"));
+  // Pages and Comments panels. Where a panel sits beside the page (pages above 860 px, comments above 1180 px)
+  // the toggle docks or undocks it and the choice is remembered on this device (body.hide-thumbs / hide-comments);
+  // on narrower screens it slides over the page and isn't remembered (body.show-thumbs / show-comments).
+  const PANELS = {
+    pages: { el: "thumbs", docked: matchMedia("(min-width: 861px)"), button: "#btn-pages", name: "pages", key: "Ctrl+Alt+P" },
+    comments: { el: "comments", docked: matchMedia("(min-width: 1181px)"), button: "#btn-comments", name: "comments", key: "Ctrl+Alt+C" },
+  } as const;
+  type PanelName = keyof typeof PANELS;
+  const panelOpen = (name: PanelName) => {
+    const panel = PANELS[name];
+    return panel.docked.matches ? !document.body.classList.contains("hide-" + panel.el) : document.body.classList.contains("show-" + panel.el);
+  };
+  const refreshPanelButton = (name: PanelName) => {
+    const panel = PANELS[name], open = panelOpen(name), button = $(panel.button);
+    button.setAttribute("aria-pressed", String(open));
+    button.setAttribute("aria-label", (open ? "Hide " : "Show ") + panel.name);
+    button.title = `${open ? "Hide" : "Show"} ${panel.name} (${panel.key})`;
+  };
+  const setPanel = (name: PanelName, open: boolean) => {
+    const panel = PANELS[name];
+    if (panel.docked.matches) {
+      document.body.classList.toggle("hide-" + panel.el, !open);
+      try {
+        localStorage.setItem("margin.hide." + name, open ? "0" : "1");
+      } catch {}
+    } else {
+      document.body.classList.toggle("show-" + panel.el, open);
+    }
+    refreshPanelButton(name);
+  };
+  const togglePanel = (name: PanelName) => setPanel(name, !panelOpen(name));
+  for (const name of Object.keys(PANELS) as PanelName[]) {
+    try {
+      document.body.classList.toggle("hide-" + PANELS[name].el, localStorage.getItem("margin.hide." + name) === "1");
+    } catch {}
+    $(PANELS[name].button).addEventListener("click", () => togglePanel(name));
+    PANELS[name].docked.addEventListener("change", () => refreshPanelButton(name));
+    refreshPanelButton(name);
+  }
   const searchInput = $<HTMLInputElement>("#search-input");
   let searchHits: SearchHit[] = [];
   let hitIndex = -1;
@@ -1982,7 +2019,7 @@ async function main(): Promise<void> {
     }
   };
   interact.onNoteCreated = (page, index) => {
-    document.body.classList.add("show-comments");
+    setPanel("comments", true);
     commentsPanel.refresh();
     commentsPanel.focus(page, index);
   };
@@ -3029,7 +3066,7 @@ async function main(): Promise<void> {
       label: "Reply",
       disabled: !canEdit,
       run: () => {
-        document.body.classList.add("show-comments");
+        setPanel("comments", true);
         commentsPanel.reply(page, index);
       },
     });
@@ -3746,6 +3783,11 @@ async function main(): Promise<void> {
     if (mod && event.key.toLowerCase() === "s") {
       event.preventDefault();
       saveCurrent();
+      return;
+    }
+    if (event.ctrlKey && event.altKey && !event.shiftKey && !inField && (event.code === "KeyP" || event.code === "KeyC")) {
+      event.preventDefault();
+      togglePanel(event.code === "KeyP" ? "pages" : "comments");
       return;
     }
     if (event.key === "F7" && !mod) {

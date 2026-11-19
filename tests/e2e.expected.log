@@ -1,4 +1,4 @@
-version v2.28.0
+version v2.29.0
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -63,4 +63,14 @@ more button toggles its menu ["1:true","0:false","1:true","1:true","0:false","1:
 pinch zoom [2,true,true,true,true]
 pinch with draw tool [true,true,false]
 zoom menu ["✓Fit width | Fit page | 50% | 75% | 100% | 125% | 150% | 200% | 300% | 400%","200%",true]
+panels start [true,true,"true","true"]
+panels pages button [false,true,"false","true"]
+panels ctrl+alt+c [false,false,"false","false"]
+panels after reload [false,false,"false","false"]
+panels ctrl+alt+p [true,false,"true","false"]
+panels 1000 px [true,false,"true","false"]
+panels 1000 px comments [true,true,"true","true"]
+panels 700 px [false,false,"false","false"]
+panels 700 px pages [true,false,"true","false"]
+panels: viewer widens when both hidden true
 errors []

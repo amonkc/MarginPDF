@@ -1584,8 +1584,41 @@ select.fld option {
     border-bottom: 1px solid var(--line);
   }
 }
-.only-narrow {
+/* Docked panels hidden with their toggle buttons (main.ts, PANELS): the page view takes their column. */
+body.hide-thumbs .thumbs,
+body.hide-comments .comments {
   display: none;
+}
+@media (min-width: 1181px) {
+  body.hide-thumbs .main {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--panel-w);
+  }
+  body.hide-comments .main {
+    grid-template-columns: var(--rail-w) var(--side-w) minmax(0, 1fr);
+  }
+  body.hide-thumbs.hide-comments .main {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  }
+}
+@media (min-width: 861px) and (max-width: 1180px) {
+  body.hide-thumbs .main {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  }
+  /* comments slide over the page here, so the remembered "hidden" doesn't apply */
+  body.hide-comments .comments {
+    display: flex;
+  }
+}
+@media (max-width: 860px) {
+  body.hide-thumbs .thumbs,
+  body.hide-comments .comments {
+    display: flex;
+  }
+}
+#btn-pages[aria-pressed=true],
+#btn-comments[aria-pressed=true] {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 ::-webkit-scrollbar {
   width: 12px;
@@ -1622,9 +1655,9 @@ select.fld option {
     display: grid;
   }
 }
-/* Tablets and unfolded phones in landscape (e.g. Galaxy Z Fold, ~880 px): the full top bar needs ~1010 px, so
+/* Tablets and unfolded phones in landscape (e.g. Galaxy Z Fold, ~880 px): the full top bar needs ~1060 px, so
    the document buttons that the More menu (⋯) also has go there. */
-@media (max-width: 1040px) {
+@media (max-width: 1080px) {
   #btn-merge,
   #btn-wm,
   #btn-flatten,

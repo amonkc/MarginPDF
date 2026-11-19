@@ -302,5 +302,28 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// Q. pages and comments panels: toggle buttons at every width, Ctrl+Alt+P / C, remembered where docked
+{
+  const c = await b.newContext({ viewport: { width: 1440, height: 900 } }); const pg = await c.newPage();
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(400);
+  const look = () => pg.evaluate(() => {
+    const vis = (sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return r.width > 0 && r.right > 0 && r.left < innerWidth && getComputedStyle(document.querySelector(sel)).display !== 'none'; };
+    return [vis('#thumbs'), vis('#comments'), document.querySelector('#btn-pages').getAttribute('aria-pressed'), document.querySelector('#btn-comments').getAttribute('aria-pressed'), Math.round(window.__margin.viewer.el.clientWidth)];
+  });
+  const steps = [['start', await look()]];
+  await pg.locator('#btn-pages').click(); await pg.waitForTimeout(300); steps.push(['pages button', await look()]);
+  await pg.keyboard.press('Control+Alt+KeyC'); await pg.waitForTimeout(300); steps.push(['ctrl+alt+c', await look()]);
+  await pg.reload(); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(400); steps.push(['after reload', await look()]);
+  await pg.keyboard.press('Control+Alt+KeyP'); await pg.waitForTimeout(300); steps.push(['ctrl+alt+p', await look()]);
+  await pg.setViewportSize({ width: 1000, height: 800 }); await pg.waitForTimeout(400); steps.push(['1000 px', await look()]);
+  await pg.locator('#btn-comments').click(); await pg.waitForTimeout(400); steps.push(['1000 px comments', await look()]);
+  await pg.locator('#btn-comments').click(); await pg.waitForTimeout(400);
+  await pg.setViewportSize({ width: 700, height: 800 }); await pg.waitForTimeout(400); steps.push(['700 px', await look()]);
+  await pg.locator('#btn-pages').click(); await pg.waitForTimeout(400); steps.push(['700 px pages', await look()]);
+  for (const [name, v] of steps) log('panels ' + name, v.slice(0, 4).concat(v[4] > 0 ? [] : ['no viewer']));
+  log('panels: viewer widens when both hidden', steps[2][1][4] > steps[0][1][4] + 400);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

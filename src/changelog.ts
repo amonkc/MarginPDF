@@ -10,6 +10,13 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.29.0",
+    date: "2026-11-19",
+    notes: [
+      "Show or hide the Pages and Comments panels at any screen size with the two buttons next to Save PDF, or with Ctrl+Alt+P and Ctrl+Alt+C. Hiding them gives the document the room. Where the panels sit beside the page, Margin remembers your choice on this device.",
+    ],
+  },
+  {
     version: "2.28.0",
     date: "2026-11-18",
     notes: [
@@ -472,6 +479,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.28.0";
+const VERSION = "2.29.0";
 
 export { CHANGELOG, VERSION };
