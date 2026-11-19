@@ -4,6 +4,7 @@ import { readTextMark, calloutAnchor } from './pdfium';
 import type { Doc, Pdfium } from './pdfium';
 import type { FreeTextData, Matrix, Pt, RGBA, Rect } from './types';
 import { DEFAULT_FT_BORDER_WIDTH } from './types';
+import { subsetFont } from './subset';
 
 export { DEFAULT_FT_BORDER_WIDTH };
 
@@ -87,8 +88,22 @@ const FONTS: FontDef[] = [
   { key: "nunito", label: "Nunito", group: "Latin", css: "MarginNunito", file: "Nunito.ttf", i: "Nunito-Italic.ttf", vw: true },
   { key: "playfair", label: "Playfair Display", group: "Latin", css: "MarginPlayfair", file: "PlayfairDisplay.ttf", i: "PlayfairDisplay-Italic.ttf", vw: true },
   { key: "oswald", label: "Oswald", group: "Latin", css: "MarginOswald", file: "Oswald.ttf", vw: true },
-  { key: "robotomono", label: "Roboto Mono", group: "Latin", css: "MarginRobotoMono", file: "RobotoMono.ttf", i: "RobotoMono-Italic.ttf", vw: true }
+  { key: "robotomono", label: "Roboto Mono", group: "Latin", css: "MarginRobotoMono", file: "RobotoMono.ttf", i: "RobotoMono-Italic.ttf", vw: true },
+  // Chinese, Japanese and Korean: everyday character sets (scripts/make-fonts.py), about 1–1.3 MB each to download
+  { key: "notosanssc", label: "Noto Sans SC · Simplified Chinese", group: "Chinese, Japanese, Korean", css: "MarginNotoSansSC", file: "NotoSansSC-Regular.ttf" },
+  { key: "notosanstc", label: "Noto Sans TC · Traditional Chinese", group: "Chinese, Japanese, Korean", css: "MarginNotoSansTC", file: "NotoSansTC-Regular.ttf" },
+  { key: "notosansjp", label: "Noto Sans JP · Japanese", group: "Chinese, Japanese, Korean", css: "MarginNotoSansJP", file: "NotoSansJP-Regular.ttf" },
+  { key: "notosanskr", label: "Noto Sans KR · Korean", group: "Chinese, Japanese, Korean", css: "MarginNotoSansKR", file: "NotoSansKR-Regular.ttf" },
+  { key: "notosansdevanagari", label: "Noto Sans Devanagari · Hindi, Marathi, Nepali", group: "South and Southeast Asian", css: "MarginNotoSansDevanagari", file: "NotoSansDevanagari.ttf", vw: true },
+  { key: "notosansbengali", label: "Noto Sans Bengali", group: "South and Southeast Asian", css: "MarginNotoSansBengali", file: "NotoSansBengali.ttf", vw: true },
+  { key: "notosanstamil", label: "Noto Sans Tamil", group: "South and Southeast Asian", css: "MarginNotoSansTamil", file: "NotoSansTamil.ttf", vw: true },
+  { key: "notosanstelugu", label: "Noto Sans Telugu", group: "South and Southeast Asian", css: "MarginNotoSansTelugu", file: "NotoSansTelugu.ttf", vw: true },
+  { key: "notosanslao", label: "Noto Sans Lao", group: "South and Southeast Asian", css: "MarginNotoSansLao", file: "NotoSansLao.ttf", vw: true },
+  { key: "notosanskhmer", label: "Noto Sans Khmer", group: "South and Southeast Asian", css: "MarginNotoSansKhmer", file: "NotoSansKhmer.ttf", vw: true },
+  { key: "notosansmyanmar", label: "Noto Sans Myanmar · Burmese", group: "South and Southeast Asian", css: "MarginNotoSansMyanmar", file: "NotoSansMyanmar.ttf", vw: true }
 ];
+/** Font menu sections, in menu order. */
+const FONT_GROUPS = ["Standard", "Thai + Latin", "Latin", "Chinese, Japanese, Korean", "South and Southeast Asian"];
 /** Font definition by key; unknown keys give Helvetica. */
 const fontByKey = (key: string): FontDef => FONTS.find((font) => font.key === key) || FONTS[0];
 /** CSS font-family value for previewing a font in the UI. */
@@ -154,6 +169,13 @@ function initShaper(wasmBinary: ArrayBuffer | Uint8Array): Promise<void> {
   harfbuzzReady = initHarfBuzz({ wasmBinary });
   return harfbuzzReady!;
 }
+/** Font groups whose files are large (about a megabyte): the UI is told while one downloads. */
+const BIG_FONT_GROUPS = new Set(["Chinese, Japanese, Korean"]);
+let fontLoadingHook: (def: FontDef) => () => void = () => () => {};
+/** Called when a large font starts downloading; the function it returns is called when it's done. */
+function onBigFontLoading(hook: (def: FontDef) => () => void): void {
+  fontLoadingHook = hook;
+}
 /** Load the regular face of a family. */
 function loadFont(def: FontDef): Promise<LoadedFont> {
   return loadFace(resolveFace(def, {}));
@@ -166,6 +188,7 @@ function loadFace(face: FontFace_): Promise<LoadedFont> {
   if (face.std) return Promise.resolve({ bytes: new Uint8Array(), upem: 1e3, ascent: 0.75 });
   let pending = fontCache.get(face.key);
   if (!pending) {
+    const done = BIG_FONT_GROUPS.has(face.def.group) ? fontLoadingHook(face.def) : null;
     pending = (async () => {
       const def = face.def, file = face.file!, data = await loadAsset("fonts/" + file).catch(() => {
         throw new Error(`Font ${def.label} failed to load`);
@@ -193,26 +216,181 @@ function loadFace(face: FontFace_): Promise<LoadedFont> {
     })();
     fontCache.set(face.key, pending);
     pending.catch(() => fontCache.delete(face.key));
+    if (done) pending.then(done, done);
   }
   return pending;
 }
-/** PDFium font handles per document, keyed by base font name or file. Reset when the document handle changes. */
-const pdfFontCache = /* @__PURE__ */ new WeakMap<object, { h: number; m: Map<string, Handle> }>();
-/** Load (once per document) the PDFium font object for a face: a standard font, or the TTF embedded as a CID font. */
-function pdfFontFor(doc: PdfDoc, face: FontFace_, loaded: LoadedFont): Handle {
-  let entry = pdfFontCache.get(doc);
-  if (!entry || entry.h !== doc.h) {
-    entry = { h: doc.h, m: /* @__PURE__ */ new Map<string, Handle>() };
-    pdfFontCache.set(doc, entry);
-  }
-  const handles = entry.m, cacheKey = (face.std || face.file)!;
-  let handle = handles.get(cacheKey);
+/** PDFium font handles per opened document, keyed by base font name or file plus characters. */
+const pdfFontCache = /* @__PURE__ */ new WeakMap<object, { g: number; m: Map<string, Handle> }>();
+/**
+ * The PDFium font object for a face and the text it will show: a standard font, or the TTF embedded as a CID
+ * font, cut down to the characters of `text` (subset.ts) so a PDF doesn't carry whole font files.
+ */
+async function pdfFontFor(doc: PdfDoc, face: FontFace_, loaded: LoadedFont, text: string): Promise<Handle> {
+  const chars = [...new Set(text)].sort().join(""), cacheKey = face.std || face.file + "|" + chars;
+  const cached = () => {
+    let entry = pdfFontCache.get(doc);
+    // per opened document: font handles die with the document they were loaded into (Doc.generation)
+    if (!entry || entry.g !== doc.generation) {
+      entry = { g: doc.generation, m: /* @__PURE__ */ new Map<string, Handle>() };
+      pdfFontCache.set(doc, entry);
+    }
+    return entry.m;
+  };
+  let handle = cached().get(cacheKey);
+  if (handle) return handle;
+  const bytes = face.std ? null : (await subsetFont(loaded.bytes, chars)) || loaded.bytes;
+  handle = cached().get(cacheKey); // another write may have made it meanwhile
   if (!handle) {
-    handle = face.std ? doc.P.FPDFText_LoadStandardFont(doc.h, face.std) : doc.P.FPDFText_LoadFont(doc.h, doc.lib.bytes(loaded.bytes), loaded.bytes.length, 2, true);
+    handle = face.std ? doc.P.FPDFText_LoadStandardFont(doc.h, face.std) : doc.P.FPDFText_LoadFont(doc.h, doc.lib.bytes(bytes!), bytes!.length, 2, true);
     if (!handle) throw new Error(`PDFium could not embed ${face.def.label}`);
-    handles.set(cacheKey, handle);
+    cached().set(cacheKey, handle);
   }
   return handle;
+}
+
+// ---- Choosing a font that can show the text --------------------------------------------------------------
+// Each font says which characters it has (HarfBuzz's character map). Where the chosen font lacks some, those
+// stretches of text use the font for their script instead: Japanese kana → Noto Sans JP, Hangul → Noto Sans KR,
+// Chinese characters → the Chinese, Japanese or Korean font that fits the surrounding text and the browser's
+// language, Indic and Southeast Asian scripts → their Noto font, Thai → Sarabun, Greek and Cyrillic → Lato,
+// accented Latin (pinyin, Vietnamese) → Sarabun or Lato. Text is split between grapheme clusters only.
+
+/** Characters that go with whatever font is next to them. */
+const NEUTRAL_RE = /^[\s\u200b-\u200f\u2060\ufe00-\ufe0f]+$/u;
+const KANA_RE = /[\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f]/;
+const HANGUL_RE = /[\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\ud7b0-\ud7ff]/;
+const HAN_RE = /[\u2e80-\u2fdf\u3000-\u303f\u3100-\u312f\u31a0-\u31bf\u3200-\u33ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]|[\ud840-\ud87f][\udc00-\udfff]/;
+/** The order to try the Chinese, Japanese and Korean fonts for Chinese characters. */
+function hanFonts(context: string): string[] {
+  const sc = "notosanssc", tc = "notosanstc", jp = "notosansjp", kr = "notosanskr";
+  if (KANA_RE.test(context)) return [jp, tc, sc, kr];
+  if (HANGUL_RE.test(context)) return [kr, tc, sc, jp];
+  const lang = (typeof navigator < "u" ? navigator.languages?.[0] || navigator.language || "" : "").toLowerCase();
+  if (/^zh-(tw|hk|mo|hant)/.test(lang)) return [tc, sc, jp, kr];
+  if (lang.startsWith("ja")) return [jp, sc, tc, kr];
+  if (lang.startsWith("ko")) return [kr, tc, sc, jp];
+  return [sc, tc, jp, kr];
+}
+const SCRIPT_FONTS: [RegExp, (context: string) => string[]][] = [
+  [KANA_RE, () => ["notosansjp"]],
+  [HANGUL_RE, () => ["notosanskr"]],
+  [HAN_RE, hanFonts],
+  [/[\u0900-\u097f\ua8e0-\ua8ff\u1cd0-\u1cff]/, () => ["notosansdevanagari"]],
+  [/[\u0980-\u09ff]/, () => ["notosansbengali"]],
+  [/[\u0b80-\u0bff]/, () => ["notosanstamil"]],
+  [/[\u0c00-\u0c7f]/, () => ["notosanstelugu"]],
+  [/[\u0e80-\u0eff]/, () => ["notosanslao"]],
+  [/[\u1780-\u17ff\u19e0-\u19ff]/, () => ["notosanskhmer"]],
+  [/[\u1000-\u109f\uaa60-\uaa7f\ua9e0-\ua9ff]/, () => ["notosansmyanmar"]],
+  [/[\u0e00-\u0e7f]/, () => ["sarabun", "notosansthai"]],
+  [/[\u0370-\u03ff\u1f00-\u1fff\u0400-\u052f]/, () => ["lato", "roboto", "opensans"]],
+  [/[\u0080-\u024f\u1e00-\u1eff\u02b0-\u02ff\u0300-\u036f]/, () => ["sarabun", "lato"]],
+];
+/** Fonts to try for a grapheme cluster the chosen font can't show (other symbols: fonts already loaded). */
+function fallbackKeys(cluster: string, context: string): string[] {
+  for (const [re, keys] of SCRIPT_FONTS) if (re.test(cluster)) return keys(context);
+  return [...fontCache.keys()].map((key) => FONTS.find((f) => key === f.key)?.key).filter((k): k is string => !!k);
+}
+/** Whether a family can show every character of `text` (standard fonts: WinAnsi). Loads the font. */
+async function covers(def: FontDef, text: string): Promise<boolean> {
+  if (def.std) return isWinAnsi(text);
+  const font = await loadFont(def);
+  return [...text].every((ch) => NEUTRAL_RE.test(ch) || font.hbFont!.nominalGlyph(ch.codePointAt(0)!) !== undefined);
+}
+const CLUSTERS = typeof Intl < "u" && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+const WORDS = typeof Intl < "u" && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: "word" }) : null;
+const clustersOf = (text: string): string[] => CLUSTERS ? [...CLUSTERS.segment(text)].map((s) => s.segment) : [...text];
+
+/**
+ * Splits `text` into pieces that each have a font able to show them: `fontKey` wherever it can, the script's
+ * font elsewhere (a cluster no font has stays in `fontKey`). `context` is the surrounding text (for choosing
+ * between Chinese, Japanese and Korean).
+ */
+async function splitByCoverage(fontKey: string, text: string, context = text): Promise<{ text: string; fontKey: string }[]> {
+  const def = fontByKey(fontKey);
+  if (!text || (await covers(def, text).catch(() => true))) return [{ text, fontKey: def.key }];
+  // One Chinese/Japanese/Korean font for all the Chinese characters of the context when one has them all
+  // (so Traditional Chinese isn't mixed with Simplified glyphs), and fonts already used here tried first.
+  const hanChars = [...context].filter((ch) => HAN_RE.test(ch)).join(""), hanOrder = hanFonts(context);
+  if (hanChars) {
+    for (const key of hanOrder) {
+      if (await covers(fontByKey(key), hanChars).catch(() => false)) {
+        hanOrder.splice(hanOrder.indexOf(key), 1);
+        hanOrder.unshift(key);
+        break;
+      }
+    }
+  }
+  const used: string[] = [], candidatesFor = (cluster: string) => {
+    const keys = HAN_RE.test(cluster) && !KANA_RE.test(cluster) && !HANGUL_RE.test(cluster) ? hanOrder : fallbackKeys(cluster, context);
+    return [...used.filter((k) => !HAN_RE.test(cluster) || keys.indexOf(k) === 0), ...keys.filter((k) => !used.includes(k))];
+  };
+  const pieces: { text: string; fontKey: string }[] = [], push = (piece: string, key: string) => {
+    if (key !== def.key && !used.includes(key)) used.push(key);
+    const last = pieces[pieces.length - 1];
+    if (last && last.fontKey === key) last.text += piece;
+    else pieces.push({ text: piece, fontKey: key });
+  };
+  /** The first fallback that has all of `piece` (judged by its first character the chosen font lacks). */
+  const fallbackFor = async (piece: string): Promise<string | null> => {
+    for (const cluster of clustersOf(piece)) {
+      if (NEUTRAL_RE.test(cluster) || (await covers(def, cluster).catch(() => true))) continue;
+      for (const candidate of candidatesFor(cluster)) if (candidate !== def.key && (await covers(fontByKey(candidate), piece).catch(() => false))) return candidate;
+      return null;
+    }
+    return def.key;
+  };
+  // Whole words where one font has them all (so "Việt" isn't set in two fonts), else cluster by cluster.
+  for (const word of WORDS ? [...WORDS.segment(text)].map((s) => s.segment) : text.split(/(?<=\s)|(?=\s)/)) {
+    if (NEUTRAL_RE.test(word) || (await covers(def, word).catch(() => true))) {
+      push(word, def.key);
+      continue;
+    }
+    const whole = await fallbackFor(word);
+    if (whole) {
+      push(word, whole);
+      continue;
+    }
+    for (const cluster of clustersOf(word)) {
+      let key = def.key;
+      if (!NEUTRAL_RE.test(cluster) && !(await covers(def, cluster).catch(() => true))) {
+        for (const candidate of candidatesFor(cluster)) {
+          if (candidate !== def.key && (await covers(fontByKey(candidate), cluster).catch(() => false))) {
+            key = candidate;
+            break;
+          }
+        }
+      }
+      push(cluster, key);
+    }
+  }
+  // A space between two pieces in the same fallback font joins them.
+  for (let i = 1; i + 1 < pieces.length; i++) {
+    const [prev, mid, next] = [pieces[i - 1], pieces[i], pieces[i + 1]];
+    if (NEUTRAL_RE.test(mid.text) && prev.fontKey === next.fontKey && prev.fontKey !== def.key) {
+      pieces.splice(i - 1, 3, { text: prev.text + mid.text + next.text, fontKey: prev.fontKey });
+      i--;
+    }
+  }
+  return pieces;
+}
+/**
+ * One font for all of `text` (for things drawn with a single font: plain text lines, text boxes, form fields,
+ * stamps): `fontKey` if it can show it, else the first font that can, else the one that shows the most.
+ */
+async function coveringFontKey(fontKey: string, text: string): Promise<string> {
+  const pieces = await splitByCoverage(fontKey, text);
+  if (pieces.length === 1) return pieces[0].fontKey;
+  const shown = new Map<string, number>();
+  for (const piece of pieces) shown.set(piece.fontKey, (shown.get(piece.fontKey) || 0) + piece.text.length);
+  const keys = [...shown.keys()].sort((a, b) => shown.get(b)! - shown.get(a)!);
+  for (const key of keys) if (key !== fontKey && (await covers(fontByKey(key), text).catch(() => false))) return key;
+  return keys[0];
+}
+/** {@link outlineFont}, then switched to a font that can show `text` if that one can't. */
+async function outlineFontFor(fontKey: string, text: string): Promise<FontDef> {
+  return fontByKey(await coveringFontKey(outlineFont(fontKey, text).key, text));
 }
 /** Shape one line with HarfBuzz. Glyph positions are in font units; `width` is in ems. */
 function shapeText(font: LoadedFont, text: string): { glyphs: ShapedGlyph[]; width: number } {
@@ -264,13 +442,8 @@ export type WriteTextOptions = TextStyleFlags & {
  * Falls back to Sarabun when a standard font cannot encode the text.
  */
 async function writeText(doc: PdfDoc, pageIndex: number, opts: WriteTextOptions): Promise<{ fontKey: string; fellBack: boolean }> {
-  let def = fontByKey(opts.fontKey), fellBack = false;
-  const allText = opts.lines.join("");
-  if (def.std && !isWinAnsi(allText)) {
-    def = fontByKey("sarabun");
-    fellBack = true;
-  }
-  const face = resolveFace(def, opts), font = await loadFace(face), id = opts.id || "b" + Math.random().toString(36).slice(2, 9), lineHeight = opts.lineHeight ?? 1.5, lineStep = lineHeight * opts.size, size = opts.size, [a, b, c, d, e, f] = opts.matrix, lib = doc.lib, api = doc.P, pdfFont = pdfFontFor(doc, face, font), color = opts.color, hex = color.slice(0, 3).map((v) => v.toString(16).padStart(2, "0")).join(""), lineWidths = opts.lines.map((line) => line ? measureText(face, font, line, size) : 0), maxWidth = Math.max(0, ...lineWidths), skew = face.fakeItalic ? FAKE_ITALIC_SKEW : 0, boldStroke = face.fakeBold ? size * 0.035 * Math.hypot(a, b) : 0, markParams = { ...opts.extra || {}, id, font: def.key, size: String(size), color: hex, lh: String(lineHeight), st: styleCode(opts), al: opts.align || "left", bm: opts.matrix.map((v) => +v.toFixed(4)).join(",") };
+  const allText = opts.lines.join(""), def = fontByKey(await coveringFontKey(opts.fontKey, allText)), fellBack = def.key !== fontByKey(opts.fontKey).key;
+  const face = resolveFace(def, opts), font = await loadFace(face), id = opts.id || "b" + Math.random().toString(36).slice(2, 9), lineHeight = opts.lineHeight ?? 1.5, lineStep = lineHeight * opts.size, size = opts.size, [a, b, c, d, e, f] = opts.matrix, lib = doc.lib, api = doc.P, pdfFont = await pdfFontFor(doc, face, font, allText), color = opts.color, hex = color.slice(0, 3).map((v) => v.toString(16).padStart(2, "0")).join(""), lineWidths = opts.lines.map((line) => line ? measureText(face, font, line, size) : 0), maxWidth = Math.max(0, ...lineWidths), skew = face.fakeItalic ? FAKE_ITALIC_SKEW : 0, boldStroke = face.fakeBold ? size * 0.035 * Math.hypot(a, b) : 0, markParams = { ...opts.extra || {}, id, font: def.key, size: String(size), color: hex, lh: String(lineHeight), st: styleCode(opts), al: opts.align || "left", bm: opts.matrix.map((v) => +v.toFixed(4)).join(",") };
   doc.withPage(pageIndex, (page) => {
     opts.lines.forEach((line, lineIndex) => {
       if (!line) return;
@@ -439,7 +612,7 @@ function replaceObjectText(doc: PdfDoc, pageIndex: number, objIndex: number, tex
  */
 async function drawFieldAppearance(doc: PdfDoc, pageIndex: number, annotIndex: number, value: string, fontKey = "sarabun"): Promise<void> {
   // outlines need a bundled (HarfBuzz) font: standard fonts and non-Thai fonts for Thai text are mapped by outlineFont
-  const look = doc.fieldLook(pageIndex, annotIndex), rect = look.rect, width = rect.r - rect.l, height = rect.t - rect.b, borderWidth = look.borderWidth || 0, font = await loadFont(outlineFont(fontKey, value)), pad = 2 + borderWidth, lines = look.multiline ? value.replace(/\r/g, "").split(`
+  const look = doc.fieldLook(pageIndex, annotIndex), rect = look.rect, width = rect.r - rect.l, height = rect.t - rect.b, borderWidth = look.borderWidth || 0, font = await loadFont(await outlineFontFor(fontKey, value)), pad = 2 + borderWidth, lines = look.multiline ? value.replace(/\r/g, "").split(`
 `) : [value.replace(/[\r\n]+/g, " ")];
   let size = look.size || (look.multiline ? 11 : Math.max(6, Math.min(14, height * 0.62)));
   if (!look.multiline && !look.size) {
@@ -558,7 +731,7 @@ function wrapLines(font: LoadedFont, text: string, size: number, maxWidth: numbe
 const TEXTBOX_PADDING = 4;
 /** Height a text box needs to show all of its wrapped text. */
 async function freeTextHeight(data: FreeTextData): Promise<number> {
-  const font = await loadFont(outlineFont(data.style.fontKey, data.text)), border = ftBorderWidth(data.style);
+  const font = await loadFont(await outlineFontFor(data.style.fontKey, data.text)), border = ftBorderWidth(data.style);
   return wrapLines(font, data.text || " ", data.style.size, data.box.r - data.box.l - 2 * (TEXTBOX_PADDING + border)).length * data.style.size * 1.3 + 2 * (TEXTBOX_PADDING + border);
 }
 /**
@@ -566,7 +739,7 @@ async function freeTextHeight(data: FreeTextData): Promise<number> {
  * arrowhead, fill, border, and the wrapped text as glyph outlines. Then stores it via doc.writeFreeText.
  */
 async function renderFreeText(doc: PdfDoc, pageIndex: number, annotIndex: number, data: FreeTextData): Promise<void> {
-  const font = await loadFont(outlineFont(data.style.fontKey, data.text)), { box, style } = data, border = ftBorderWidth(style), fmt = (v: number) => (Math.round(v * 1e3) / 1e3).toString(), rgbOps = (c: number[]) => c.slice(0, 3).map((v) => fmt(v / 255)).join(" "), width = box.r - box.l, height = box.t - box.b, ops = ["q"];
+  const font = await loadFont(await outlineFontFor(data.style.fontKey, data.text)), { box, style } = data, border = ftBorderWidth(style), fmt = (v: number) => (Math.round(v * 1e3) / 1e3).toString(), rgbOps = (c: number[]) => c.slice(0, 3).map((v) => fmt(v / 255)).join(" "), width = box.r - box.l, height = box.t - box.b, ops = ["q"];
   let bounds: Rect = { ...box };
   const tip = data.tip;
   if (tip && style.border) {
@@ -599,7 +772,7 @@ async function renderFreeText(doc: PdfDoc, pageIndex: number, annotIndex: number
  * optional smaller second line, all as outlines in Sarabun.
  */
 async function stampAppearance(stamp: { label: string; sub?: string; color: RGBA | number[] }, center: Pt): Promise<{ rect: Rect; content: string }> {
-  const boldFont = await loadFace(resolveFace(fontByKey("sarabun"), { bold: true })), subFont = stamp.sub ? await loadFont(fontByKey("sarabun")) : null, labelSize = 22, subSize = 8.5, padX = 12, padY = 7, borderWidth = 2.2, labelShape = shapeText(boldFont, stamp.label), subShape = stamp.sub && subFont ? shapeText(subFont, stamp.sub) : null, width = Math.max(labelShape.width * labelSize, subShape ? subShape.width * subSize : 0) + padX * 2, height = labelSize * 1.05 + (subShape ? subSize * 1.5 : 0) + padY * 2, rect = { l: center.x - width / 2, r: center.x + width / 2, b: center.y - height / 2, t: center.y + height / 2 }, fmt = (v: number) => (Math.round(v * 1e3) / 1e3).toString(), colorOps = stamp.color.slice(0, 3).map((v) => fmt(v / 255)).join(" "), ops = ["q", `${colorOps} RG ${colorOps} rg`], roundedRect = (x: number, y: number, w: number, h: number, r: number) => {
+  const boldFont = await loadFace(resolveFace(fontByKey(await coveringFontKey("sarabun", stamp.label)), { bold: true })), subFont = stamp.sub ? await loadFont(fontByKey(await coveringFontKey("sarabun", stamp.sub))) : null, labelSize = 22, subSize = 8.5, padX = 12, padY = 7, borderWidth = 2.2, labelShape = shapeText(boldFont, stamp.label), subShape = stamp.sub && subFont ? shapeText(subFont, stamp.sub) : null, width = Math.max(labelShape.width * labelSize, subShape ? subShape.width * subSize : 0) + padX * 2, height = labelSize * 1.05 + (subShape ? subSize * 1.5 : 0) + padY * 2, rect = { l: center.x - width / 2, r: center.x + width / 2, b: center.y - height / 2, t: center.y + height / 2 }, fmt = (v: number) => (Math.round(v * 1e3) / 1e3).toString(), colorOps = stamp.color.slice(0, 3).map((v) => fmt(v / 255)).join(" "), ops = ["q", `${colorOps} RG ${colorOps} rg`], roundedRect = (x: number, y: number, w: number, h: number, r: number) => {
     const k = 0.5523 * r; // Bézier circle approximation
     ops.push(`${fmt(x + r)} ${fmt(y)} m ${fmt(x + w - r)} ${fmt(y)} l ${fmt(x + w - r + k)} ${fmt(y)} ${fmt(x + w)} ${fmt(y + r - k)} ${fmt(x + w)} ${fmt(y + r)} c ${fmt(x + w)} ${fmt(y + h - r)} l ${fmt(x + w)} ${fmt(y + h - r + k)} ${fmt(x + w - r + k)} ${fmt(y + h)} ${fmt(x + w - r)} ${fmt(y + h)} c ${fmt(x + r)} ${fmt(y + h)} l ${fmt(x + r - k)} ${fmt(y + h)} ${fmt(x)} ${fmt(y + h - r + k)} ${fmt(x)} ${fmt(y + h - r)} c ${fmt(x)} ${fmt(y + r)} l ${fmt(x)} ${fmt(y + r - k)} ${fmt(x + r - k)} ${fmt(y)} ${fmt(x + r)} ${fmt(y)} c h S`);
   };
@@ -625,7 +798,7 @@ async function stampAppearance(stamp: { label: string; sub?: string; color: RGBA
  * x-height) and mapped through `transform`. Throws when there is nothing to draw. Not inserted into a page.
  */
 async function textPathObject(doc: PdfDoc, text: string, fontKey: string, size: number, transform: PointTransform): Promise<Handle> {
-  const font = await loadFont(outlineFont(fontKey, text)), shaped = shapeText(font, text), scale = size / font.upem, x0 = -(shaped.width * size) / 2, y0 = -size * 0.35, api = doc.P;
+  const font = await loadFont(await outlineFontFor(fontKey, text)), shaped = shapeText(font, text), scale = size / font.upem, x0 = -(shaped.width * size) / 2, y0 = -size * 0.35, api = doc.P;
   let path: Handle = 0;
   for (const glyph of shaped.glyphs) drawGlyph(font.hbFont!, glyph.gid, (x, y) => transform(x0 + (glyph.x + x) * scale, y0 + (glyph.y + y) * scale), {
     move: (x, y) => {
@@ -672,4 +845,4 @@ function createImageObject(doc: PdfDoc, rgba: ArrayLike<number>, w: number, h: n
   return image;
 }
 
-export { loadFont, isWinAnsi, measureText, stampAppearance, fontCss, removeObjects, parseStyleCode, styleCode, writeText, initShaper, loadFace, needsShaping, outlineFont, insertMarkedImage, removeById, renderFreeText, insertMarkedObject, drawFieldAppearance, resolveFace, measureWithFont, guessFontKey, FONTS, freeTextHeight, replaceObjectText, createImageObject, textPathObject, fontByKey };
+export { FONT_GROUPS, splitByCoverage, coveringFontKey, outlineFontFor, onBigFontLoading, loadFont, isWinAnsi, measureText, stampAppearance, fontCss, removeObjects, parseStyleCode, styleCode, writeText, initShaper, loadFace, needsShaping, outlineFont, insertMarkedImage, removeById, renderFreeText, insertMarkedObject, drawFieldAppearance, resolveFace, measureWithFont, guessFontKey, FONTS, freeTextHeight, replaceObjectText, createImageObject, textPathObject, fontByKey };

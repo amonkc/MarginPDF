@@ -5,7 +5,12 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
 
 ## Layout
 - `src/engine/` — PDF engine wrapper (`pdfium.ts`: `Pdfium`, `Doc`), text shaping/drawing (`text.ts`),
-  rich text (`richtext.ts`), asset loading, growable file buffer, shared types (`types.ts`).
+  rich text (`richtext.ts`), font subsetting (`subset.ts`), asset loading, growable file buffer, shared types (`types.ts`).
+- Fonts: `text.ts` `FONTS`/`FONT_GROUPS`. Text the chosen font can't show is moved to the script's font
+  (`splitByCoverage`; rich text per run), and embedded fonts are subset to the characters used. PDFium font handles
+  are cached per `Doc.generation` (never by `doc.h`: a reopened document can reuse the address).
+- `scripts/make-fonts.py` — builds the Noto CJK (everyday character sets) and Indic/Southeast Asian fonts in
+  `public/fonts/` from the Google Fonts sources.
 - `src/ui/` — viewer, tools (`interact.ts`, `arrange.ts`, `crop.ts`, `textbox.ts`, `links.ts`, `forms.ts`),
   panels, dialogs, context menu, clipboard.
 - `src/app.ts` — document state, settings, undo history. `src/main.ts` — boot, ribbon, menus, shortcuts.

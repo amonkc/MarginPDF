@@ -1,5 +1,5 @@
 import { unionRect, ANNOT, isTextMarkup, FIELD } from '../engine/pdfium';
-import { blockFont, normalizeRuns, decodeRichText, colorHex, hexToRgba, applySpanStyle, richToHtml, richFromPlain, writeRichText, htmlToRich, plainText } from '../engine/richtext';
+import { normalizeRuns, decodeRichText, colorHex, hexToRgba, applySpanStyle, richToHtml, richFromPlain, writeRichText, htmlToRich, plainText } from '../engine/richtext';
 import { loadFont, fontCss, removeObjects, parseStyleCode, styleCode, writeText, loadFace, needsShaping, removeById, drawFieldAppearance, resolveFace, guessFontKey, replaceObjectText, fontByKey } from '../engine/text';
 import { toast, rgbCss, modal, svg, h } from './dom';
 import { decodeImage, encodeImage, defaultImageBox, pickImageFile, imageMatrix, dragImageBox } from './images';
@@ -955,11 +955,12 @@ class Interact {
           this.overlay(editor.pv);
           return;
         }
-        const matrix = await this.newBlockMatrix(editor), fellBack = blockFont(doc).key !== doc.font;
+        const matrix = await this.newBlockMatrix(editor);
+        let fallbacks: string[] = [];
         await this.app.mutate("Add text", { pages: [page] }, async () => {
-          await writeRichText(pdf, page, { ...doc, bm: matrix });
+          fallbacks = (await writeRichText(pdf, page, { ...doc, bm: matrix })).fallbacks;
         });
-        if (fellBack) toast(`${fontByKey(doc.font).label} can't show these characters, so Margin used Sarabun.`, "warn", 4200);
+        tellFallbacks(doc.font, fallbacks);
       } else if (editor.kind === "block") {
         if (unchanged) {
           this.overlay(editor.pv);
@@ -967,7 +968,7 @@ class Interact {
         }
         await this.app.mutate("Edit text", { pages: [page] }, async () => {
           removeById(pdf, page, editor.blockId!);
-          if (plain.trim()) await writeRichText(pdf, page, doc);
+          if (plain.trim()) tellFallbacks(doc.font, (await writeRichText(pdf, page, doc)).fallbacks);
         });
       } else {
         if (unchanged) {
@@ -980,7 +981,7 @@ class Interact {
           // try changing the text in place; otherwise delete the objects and write a new block
           if (!(editor.kind === "object" && sameStyle && objs.length === 1 && !needsShaping(plain) && replaceObjectText(pdf, page, first.index, plain))) {
             removeObjects(pdf, page, indices);
-            await writeRichText(pdf, page, doc);
+            tellFallbacks(doc.font, (await writeRichText(pdf, page, doc)).fallbacks);
           }
         });
       }
@@ -1174,6 +1175,13 @@ async function replaceRunText(pdf: Doc, page: number, run: TextRun, text: string
   const baseFont = first.fontName.replace(/^[A-Z]{6}\+/, ""), style = { bold: /bold|black|heavy|semibold|demi/i.test(baseFont), italic: /italic|oblique/i.test(baseFont) || Math.abs(first.matrix[2]) > 0.05 * Math.abs(first.matrix[3]) };
   removeObjects(pdf, page, indices);
   await writeText(pdf, page, { lines: [oneLine], fontKey: guessFontKey(first.fontName, oneLine), size: first.fontSize, color: first.color as RGBA, matrix: unskewMatrix(first.matrix), ...style });
+}
+
+/** Says which fonts Margin used for characters the chosen font can't show. */
+function tellFallbacks(chosenKey: string, fallbacks: string[]): void {
+  if (!fallbacks.length) return;
+  const names = fallbacks.map((key) => fontByKey(key).label.split(" · ")[0]);
+  toast(`${fontByKey(chosenKey).label.split(" · ")[0]} can’t show some of these characters, so Margin used ${names.join(" and ")} for them.`, "warn", 4800);
 }
 
 /**

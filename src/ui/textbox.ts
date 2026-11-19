@@ -1,4 +1,4 @@
-import { loadFont, fontCss, outlineFont, renderFreeText, freeTextHeight, DEFAULT_FT_BORDER_WIDTH } from '../engine/text';
+import { loadFont, fontCss, outlineFontFor, renderFreeText, freeTextHeight, DEFAULT_FT_BORDER_WIDTH } from '../engine/text';
 import { toast, svg, h } from './dom';
 import type { FreeTextData, FreeTextStyle, Pt, RGBA, Rect } from '../engine/types';
 import type { App } from '../app';
@@ -76,7 +76,7 @@ class TextBoxes {
     const doc = this.app.doc, ft: FreeTextData | null = data || (annot != null ? doc.readFreeText(pv.index, annot) : null);
     if (!ft) return;
     // Load the font first so the textarea shows the text in the face it will be drawn with.
-    const font = outlineFont(ft.style.fontKey, ft.text || "ก");
+    const font = await outlineFontFor(ft.style.fontKey, ft.text || "ก");
     await loadFont(font).catch(() => {
     });
     const box = pv.tf.box(ft.box), zoom: number = this.v.zoom, st = ft.style, borderW = st.border ? st.borderWidth ?? DEFAULT_FT_BORDER_WIDTH : 0, editor = h("textarea", { class: "ftedit", spellcheck: true, "aria-label": "Text box" }) as HTMLTextAreaElement;

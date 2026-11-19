@@ -45,6 +45,7 @@ requests and transfer sizes.
 - `src/changelog.ts` — version and the in-app list of changes.
 - `src/vendor/harfbuzz/` — harfbuzzjs 1.6.3 (MIT) with an explicit init.
 - `public/` — wasm engines, fonts, spelling dictionary, welcome document.
+- `scripts/make-fonts.py` — builds the Chinese, Japanese, Korean, Indic and Southeast Asian fonts from Noto sources.
 - `site/` — favicon and home-screen icons, served from the site root.
 - `scripts/web.mjs`, `scripts/serve.mjs`, `wrangler.jsonc` — the site build step, a local stand-in for Cloudflare, deployment.
 - `public/licenses/` — third-party notices, shipped with both builds and shown in the app.

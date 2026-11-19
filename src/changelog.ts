@@ -10,6 +10,16 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.32.0",
+    date: "2026-11-19",
+    notes: [
+      "Write in more languages: Chinese (Simplified and Traditional, with pinyin), Japanese, Korean, Hindi and other Devanagari languages, Bengali, Tamil, Telugu, Lao, Khmer and Burmese, alongside Thai, Vietnamese, Russian and Greek. New fonts for them are in the font menu; the Chinese, Japanese and Korean ones download (about 1 MB) the first time you use them.",
+      "When the font you chose can’t show some characters, Margin sets just those words in a font that can and says which. Mixed text such as Thai with Chinese works in one line.",
+      "Saved PDFs are much smaller: Margin now embeds only the characters you typed, not whole font files (one line in Roboto used to add about 270 KB).",
+      "Fixed a rare crash after many edits in one session.",
+    ],
+  },
+  {
     version: "2.31.0",
     date: "2026-11-19",
     notes: ["Rotate and delete are now on the pages themselves in the Pages panel: hover over a page (or select it, on touch screens) for rotate left, rotate right and delete. If the page is part of a selection, they act on all the selected pages."],
@@ -489,6 +499,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.31.0";
+const VERSION = "2.32.0";
 
 export { CHANGELOG, VERSION };

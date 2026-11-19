@@ -1,4 +1,4 @@
-import { outlineFont, removeById, insertMarkedObject, measureWithFont, FONTS, createImageObject, textPathObject } from '../engine/text';
+import { outlineFontFor, removeById, insertMarkedObject, measureWithFont, FONTS, FONT_GROUPS, createImageObject, textPathObject } from '../engine/text';
 import { toast, modal, h } from './dom';
 import type { Child, ToastHandle } from './dom';
 import type { RGBA } from '../engine/types';
@@ -105,7 +105,7 @@ async function textWidthAt100(settings: WatermarkSettings): Promise<number> {
   const text = settings.text.trim(), key = settings.fontKey + "|" + text;
   let width = textWidthCache.get(key);
   if (width == null) {
-    width = await measureWithFont(outlineFont(settings.fontKey, text).key, text, 100);
+    width = await measureWithFont((await outlineFontFor(settings.fontKey, text)).key, text, 100);
     if (textWidthCache.size >= TEXT_WIDTH_CACHE_MAX) textWidthCache.delete(textWidthCache.keys().next().value!);
   } else textWidthCache.delete(key);
   // (Re)insert so the most recently used entry is last in iteration order.
@@ -183,7 +183,7 @@ async function watermarkDialog(app: App, initial: WatermarkSettings, saveSetting
     schedulePreview();
   });
   const fontSelect = h("select", { class: "rselect", "aria-label": "Font" }) as HTMLSelectElement;
-  for (const group of ["Standard", "Thai + Latin", "Latin"]) fontSelect.append(h("optgroup", { label: group }, ...FONTS.filter((f) => f.group === group).map((f) => h("option", { value: f.key, text: f.label, selected: f.key === s.fontKey }))));
+  for (const group of FONT_GROUPS) fontSelect.append(h("optgroup", { label: group }, ...FONTS.filter((f) => f.group === group).map((f) => h("option", { value: f.key, text: f.label, selected: f.key === s.fontKey }))));
   fontSelect.addEventListener("change", () => {
     s.fontKey = fontSelect.value;
     schedulePreview();

@@ -1,4 +1,4 @@
-import { isWinAnsi, measureText, writeText, loadFace, resolveFace, fontByKey } from './text';
+import { isWinAnsi, measureText, writeText, loadFace, resolveFace, fontByKey, splitByCoverage } from './text';
 import type { FontDef, FontFace_, LoadedFont } from './text';
 import type { Doc } from './pdfium';
 
@@ -105,11 +105,12 @@ function blockFont(rt: RichText): FontDef {
   const def = fontByKey(rt.font);
   return def.std && !isWinAnsi(plainText(rt).replace(/\n/g, "")) ? fontByKey("sarabun") : def;
 }
-/** The font a run is drawn with (its own font, else the block's; Sarabun when a standard font cannot encode it). */
+/**
+ * The font chosen for a run (its own, else the block's). Characters it can't show are moved to other fonts
+ * before layout (withFallbackFonts), so this is the font as chosen, not a guess.
+ */
 function runFont(rt: RichText, run: Run): FontDef {
-  if (!run.f) return blockFont(rt);
-  const def = fontByKey(run.f);
-  return def.std && !isWinAnsi(run.t) ? fontByKey("sarabun") : def;
+  return fontByKey(run.f || rt.font);
 }
 const runSize = (rt: RichText, run: Run): number => run.z || rt.size;
 
@@ -242,15 +243,38 @@ async function layoutRich(rt: RichText): Promise<LayoutLine[]> {
  * block itself is stored (`rt`) on the first segment's mark so it can be edited again.
  * Returns the id and the number of lines written (0 when the block is empty).
  */
-async function writeRichText(doc: Doc, pageIndex: number, rt: RichText, id?: string): Promise<{ id: string; lines: number }> {
-  const lines = await layoutRich(rt), blockId = id || "b" + Math.random().toString(36).slice(2, 9), [a, b, c, d, e, f] = rt.bm;
+async function writeRichText(doc: Doc, pageIndex: number, rt: RichText, id?: string): Promise<{ id: string; lines: number; fallbacks: string[] }> {
+  const { rt: drawn, fallbacks } = await withFallbackFonts(rt), lines = await layoutRich(drawn), blockId = id || "b" + Math.random().toString(36).slice(2, 9), [a, b, c, d, e, f] = rt.bm;
   let first = true;
   for (const [lineIndex, line] of lines.entries()) for (const seg of line.segs) {
     const x = e - c * line.y + a * seg.x, y = f - d * line.y + b * seg.x;
     await writeText(doc, pageIndex, { lines: [seg.text], fontKey: runFont(rt, seg.run).key, size: runSize(rt, seg.run), color: hexToRgba(seg.run.c || rt.color), matrix: [a, b, c, d, x, y], bold: seg.run.b, italic: seg.run.i, underline: seg.run.u, strike: seg.run.s, id: blockId, lineHeight: rt.lh, align: "left", ln0: lineIndex, extra: first ? { rt: encodeRichText(rt) } : undefined });
     first = false;
   }
-  return first ? { id: blockId, lines: 0 } : { id: blockId, lines: lines.length };
+  return first ? { id: blockId, lines: 0, fallbacks } : { id: blockId, lines: lines.length, fallbacks };
+}
+/**
+ * The block as drawn: runs split where their font can't show some characters, those parts set in the font for
+ * their script (text.ts, splitByCoverage). `fallbacks` lists the fonts brought in. The block stored for editing
+ * keeps the fonts the user chose.
+ */
+async function withFallbackFonts(rt: RichText): Promise<{ rt: RichText; fallbacks: string[] }> {
+  const used = new Set<string>(), paras: Run[][] = [];
+  for (const para of rt.paras) {
+    const out: Run[] = [], context = para.map((run) => run.t).join("");
+    for (const run of para) {
+      const chosen = runFont(rt, run).key;
+      for (const piece of await splitByCoverage(chosen, run.t, context)) {
+        if (piece.fontKey === chosen) out.push({ ...run, t: piece.text });
+        else {
+          out.push({ ...run, t: piece.text, f: piece.fontKey });
+          used.add(piece.fontKey);
+        }
+      }
+    }
+    paras.push(out);
+  }
+  return { rt: { ...rt, paras }, fallbacks: [...used] };
 }
 /**
  * Replace the characters [start, end) of the block's plain text (UTF-16 offsets, paragraphs separated by one

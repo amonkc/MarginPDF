@@ -2,7 +2,7 @@
   "name": "margin-pdf-editor",
   "private": true,
   "license": "MIT",
-  "version": "2.31.0",
+  "version": "2.32.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

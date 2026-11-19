@@ -353,5 +353,35 @@ log('more button toggles its menu', toggles);
   await t.close();
 }
 
+// S. writing in other languages: each script gets a font that has it (Helvetica chosen, so all need one), the
+// text stays searchable after saving and reopening, and saved files embed only the characters used
+{
+  const SAMPLES = [['Simplified Chinese + pinyin', '你好，世界。nǐ hǎo'], ['Traditional Chinese', '繁體中文測試'], ['Japanese', 'こんにちは、日本語です'], ['Korean', '안녕하세요 한국어'],
+    ['Hindi', 'नमस्ते दुनिया'], ['Bengali', 'আমার সোনার বাংলা'], ['Tamil', 'வணக்கம் உலகம்'], ['Telugu', 'నమస్కారం'], ['Lao', 'ສະບາຍດີ'], ['Khmer', 'សួស្តីពិភពលោក'],
+    ['Burmese', 'မင်္ဂလာပါ'], ['Thai + Chinese + English', 'ภาษาไทย 中文 English'], ['Russian', 'Привет, мир'], ['Vietnamese', 'Tiếng Việt có dấu']];
+  const c = await b.newContext({ viewport: { width: 1400, height: 1000 } }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('languages: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(400);
+  await pg.evaluate(async () => { const { app, viewer } = window.__margin; await app.mutate('blank', { pages: 'all', structure: true }, () => app.doc.insertBlank(0, 612, 792)); app.settings.textFont = 'helv'; viewer.scrollToPage(0); });
+  await pg.waitForTimeout(600);
+  const before = await pg.evaluate(() => window.__margin.app.exportBytes().length);
+  const o = await pg.evaluate(() => { const r = window.__margin.viewer.views[0].ov.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; });
+  const used = [];
+  for (const [i, [, text]] of SAMPLES.entries()) {
+    await pg.keyboard.press('t'); await pg.waitForTimeout(150);
+    await pg.mouse.click(o.x + 40, o.y + 30 + i * 46); await pg.waitForTimeout(300);
+    await pg.keyboard.insertText(text); await pg.mouse.click(o.x + o.w - 10, o.y + 5);
+    for (let k = 0; k < 150 && await pg.evaluate(() => !!window.__margin.ix.editor || /^Loading/.test(document.querySelector('#toast').textContent)); k++) await pg.waitForTimeout(200);
+    await pg.waitForTimeout(400); used.push((await pg.locator('#toast').innerText()).replace(/^.* so Margin used (.*) for them\.$/, '$1'));
+  }
+  const first = (t) => t.split(/[，、 ]/)[0];
+  const found = await pg.evaluate((words) => words.map((w) => window.__margin.app.doc.search(w).length > 0), SAMPLES.map(([, t]) => first(t)));
+  const bytes = await pg.evaluate(() => Array.from(window.__margin.app.exportBytes()));
+  const reopened = await pg.evaluate(([bytes, words]) => { const { app } = window.__margin; app.open(new Uint8Array(bytes), 'languages.pdf'); return words.map((w) => app.doc.search(w).length > 0); }, [bytes, SAMPLES.map(([, t]) => first(t))]);
+  SAMPLES.forEach(([name], i) => log('language ' + name, [used[i], found[i], reopened[i]]));
+  log('languages: saved file grew by under 200 KB', bytes.length - before < 200 * 1024);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

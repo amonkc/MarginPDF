@@ -515,6 +515,8 @@ export type RenderedImage = { m: Matrix; rgba: Uint8ClampedArray; w: number; h: 
  * One open document. Pages and annotations are addressed by index; every method loads the page,
  * does its work and closes it again (see withPage), so handles never escape.
  */
+/** Counter behind Doc.generation. */
+let docGeneration = 0;
 class Doc {
   lib: Pdfium;
   /** The cwrapped PDFium API. */
@@ -529,6 +531,11 @@ class Doc {
   imported = false;
   /** Page indices loaded since the last swap. */
   loaded = new Set<number>();
+  /**
+   * Bumped every time a document is attached (open, swap). Objects tied to the PDFium document (font handles)
+   * must be keyed by this, not by `h`: a reopened document often gets the same address as the one closed.
+   */
+  generation = ++docGeneration;
   /** How many pages are currently loaded through withPage/createField. */
   depth = 0;
   /** The passwords the current bytes were opened with (swap() reopens them if new bytes won't open). */
@@ -581,6 +588,7 @@ class Doc {
   private attach(handle: number, src: PdfSource, password: string, ownerPassword: string): void {
     const P = this.P;
     this.h = handle;
+    this.generation = ++docGeneration;
     this.src = src;
     this.passwords = { password, ownerPassword };
     this.imported = false;

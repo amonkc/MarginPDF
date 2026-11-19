@@ -1,4 +1,4 @@
-version v2.31.0
+version v2.32.0
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -80,4 +80,19 @@ page buttons rotate selection 1+3 ["LLL"]
 page buttons delete page 2 asks ["Delete page 2?"]
 page buttons toolbar ["insert,merge,copy,paste,extract"]
 page buttons on touch: only on the selected page [[false,false],[false,true]]
+language Simplified Chinese + pinyin ["Noto Sans SC",true,true]
+language Traditional Chinese ["Noto Sans TC",true,true]
+language Japanese ["Noto Sans JP",true,true]
+language Korean ["Noto Sans KR",true,true]
+language Hindi ["Noto Sans Devanagari",true,true]
+language Bengali ["Noto Sans Bengali",true,true]
+language Tamil ["Noto Sans Tamil",true,true]
+language Telugu ["Noto Sans Telugu",true,true]
+language Lao ["Noto Sans Lao",true,true]
+language Khmer ["Noto Sans Khmer",true,true]
+language Burmese ["Noto Sans Myanmar",true,true]
+language Thai + Chinese + English ["Sarabun and Noto Sans SC",true,true]
+language Russian ["Lato",true,true]
+language Vietnamese ["Sarabun",true,true]
+languages: saved file grew by under 200 KB true
 errors []

@@ -9,7 +9,7 @@ import { CHANGELOG, VERSION } from "./changelog";
 import { loadAsset } from "./engine/assets";
 import { Growable } from "./engine/growable";
 import { ENGINE_FULL, ANNOT, Pdfium, ANNOT_NAMES, PdfError, isEngineAbort } from "./engine/pdfium";
-import { loadFont, parseStyleCode, styleCode, initShaper, FONTS, fontByKey } from "./engine/text";
+import { loadFont, parseStyleCode, styleCode, initShaper, FONTS, FONT_GROUPS, fontByKey, onBigFontLoading, splitByCoverage } from "./engine/text";
 import { Arrange } from "./ui/arrange";
 import { Bookmarks } from "./ui/bookmarks";
 import { compressDialog } from "./ui/compress";
@@ -138,7 +138,7 @@ async function main(): Promise<void> {
   const thumbs = new Thumbs($("#thumbs"), app);
   const commentsPanel = new CommentsPanel($("#comments"), app);
   // debugging/test hook: the main objects, reachable from the console and the e2e tests
-  (window as unknown as { __margin: unknown }).__margin = { app, viewer, ix: interact, arrange, Growable: Growable };
+  (window as unknown as { __margin: unknown }).__margin = { app, viewer, ix: interact, arrange, Growable: Growable, splitByCoverage };
   const bookmarks = new Bookmarks(app, viewer);
   const pagesPane = h(
     "div",
@@ -389,7 +389,7 @@ async function main(): Promise<void> {
       ? { fontKey: editor.selFont || editor.fontKey, size: editor.selSize || editor.size, color: editor.color }
       : { fontKey: app.settings.textFont, size: app.settings.textSize, color: app.settings.textColor };
     const fontSelect = h("select", { class: "rselect", id: "font-select", "aria-label": "Font" });
-    for (const group of ["Standard", "Thai + Latin", "Latin"])
+    for (const group of FONT_GROUPS)
       fontSelect.append(
         h(
           "optgroup",
@@ -555,7 +555,7 @@ async function main(): Promise<void> {
     change: (patch: Partial<FreeTextRibbonStyle>) => unknown,
   ): Node[] {
     const fontSelect = h("select", { class: "rselect", "aria-label": "Font" });
-    for (const group of ["Standard", "Thai + Latin", "Latin"])
+    for (const group of FONT_GROUPS)
       fontSelect.append(
         h(
           "optgroup",
@@ -4082,5 +4082,10 @@ async function main(): Promise<void> {
     if (orphan) await offerOrphan(orphan);
   }
   loadFont(fontByKey("sarabun")).catch(() => {});
+  // Chinese, Japanese and Korean fonts are about a megabyte: say so while one downloads (once per font).
+  onBigFontLoading((def) => {
+    const note = toast(`Loading ${def.label.split(" · ")[0]}…`, "ok", 60e3);
+    return () => note.close();
+  });
 }
 main();

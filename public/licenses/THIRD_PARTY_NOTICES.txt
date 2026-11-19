@@ -1704,7 +1704,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-HarfBuzz (text shaping, compiled to WebAssembly by harfbuzzjs)
+HarfBuzz (text shaping, and font subsetting for embedding, compiled to WebAssembly by harfbuzzjs)
 https://github.com/harfbuzz/harfbuzz
 
 HarfBuzz is licensed under the so-called "Old MIT" license.  Details follow.
@@ -2189,8 +2189,21 @@ Fonts Margin embeds in PDFs:
 - Lato: Copyright (c) 2011-2015 by tyPoland Lukasz Dziedzic (http://www.typoland.com/) with Reserved Font Name "Lato". Licensed under the SIL Open Font License, Version 1.1 (http://scripts.sil.org/OFL).
 - Mitr: Copyright (c) 2015, Cadson Demak (info@cadsondemak.com)
 - Montserrat: Copyright 2011 The Montserrat Project Authors (https://github.com/JulietaUla/Montserrat)
+- Noto Sans Bengali: Copyright 2025 The Noto Project Authors (https://github.com/notofonts/bengali)
+- Noto Sans Devanagari: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari)
+- Noto Sans JP, Noto Sans KR, Noto Sans SC, Noto Sans TC: (c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+- Noto Sans Khmer: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/khmer)
+- Noto Sans Lao: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/lao)
+- Noto Sans Myanmar: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/myanmar)
+- Noto Sans Tamil: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/tamil)
+- Noto Sans Telugu: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/telugu)
 - Noto Sans Thai: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai)
 - Noto Serif Thai: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai)
+
+Modified versions: Noto Sans JP, KR, SC and TC are cut down to everyday character sets and fixed at the Regular
+weight; Noto Sans Bengali, Devanagari, Khmer, Lao, Myanmar, Tamil and Telugu are fixed at normal width (Margin's
+scripts/make-fonts.py, from the fonts at https://github.com/google/fonts). None uses a Reserved Font Name. When
+Margin writes text into a PDF, it embeds only the characters used.
 - Nunito: Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
 - Open Sans: Copyright 2020 The Open Sans Project Authors (https://github.com/googlefonts/opensans)
 - Oswald: Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont)
