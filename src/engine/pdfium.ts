@@ -1036,6 +1036,10 @@ class Doc {
       return out;
     }, { text: true });
   }
+  /** Number of text characters on a page (0 for a scanned page with no text layer). */
+  charCount(index: number): number {
+    return this.withPage(index, (_page, textPage) => Math.max(0, this.P.FPDFText_CountChars(textPage)), { text: true });
+  }
   /** Words on a page (Latin letters, with apostrophes) accepted by `accept`, for spell checking. */
   pageWords(index: number, accept: (word: string) => boolean): WordHit[] {
     const P = this.P, lib = this.lib;

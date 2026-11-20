@@ -10,6 +10,14 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.35.0",
+    date: "2026-11-20",
+    notes: [
+      "Recognise text (OCR), in the More menu: makes scanned pages searchable, selectable and copyable. Choose the pages and the languages they use: English, Thai, Chinese, Japanese, Korean, Vietnamese, Russian, Hindi, Bengali, Tamil, Telugu, Lao, Khmer or Burmese. It runs on your device; the recogniser (about 1 MB) and each language (1–3.6 MB) download the first time they’re used.",
+      "After scanning with the camera, Margin offers to recognise the text straight away.",
+    ],
+  },
+  {
     version: "2.34.0",
     date: "2026-11-20",
     notes: [
@@ -519,6 +527,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.34.0";
+const VERSION = "2.35.0";
 
 export { CHANGELOG, VERSION };

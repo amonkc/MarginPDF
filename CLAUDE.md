@@ -18,6 +18,10 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
 - `src/app.ts` — document state, settings, undo history. `src/main.ts` — boot, ribbon, menus, shortcuts.
 - `src/session.ts` — keeps unsaved work (file buffers + undo history) in IndexedDB `margin-session` through a
   refresh or a closed tab; never stores passwords.
+- `src/ui/ocr.ts` — Recognise text (Tesseract.js 7, lazy): pages rendered at ≤300 dpi, lines written as invisible text
+  (`text.ts` `writeOcrText`, mark `MarginOCR`). Engine and `@tesseract.js-data/*` best_int models are copied by
+  `scripts/web.mjs` from node_modules into one hashed folder (`ocr/` in the asset map); no binaries in git.
+- `src/ui/imagepdf.ts`, `src/ui/scan.ts` + `scanimage.ts` — images to PDF; scan with camera (edge detection, warp, filters).
 - `src/updates.ts` — checks `/version.json` (emitted by `vite.config.ts` from the changelog, `no-cache`) when the tab
   regains focus and every 30 min; marks the version button and offers Reload.
 - `src/changelog.ts` — `CHANGELOG` and `VERSION` (shown in the app).

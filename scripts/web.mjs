@@ -3,6 +3,7 @@
 //    the list), so every asset can be cached by browsers and Cloudflare for a year and is downloaded once;
 //  - writes web/_headers: long caching for hashed files, revalidation for index.html, security headers, and a
 //    text content type for the spelling dictionary so Cloudflare compresses it;
+//  - copies the OCR engine and language data (from node_modules) into one content-hashed folder;
 //  - copies the third-party licence notices (public/licenses/) to web/licenses/ as well;
 //  - copies the site icons (site/: favicon, home-screen icons) to the site root, where browsers look for them.
 import fs from 'fs';
@@ -25,6 +26,20 @@ for (const src of files) {
   map[rel] = '/' + hashed;
   bytes += data.length;
 }
+// OCR (Tesseract.js, src/ui/ocr.ts): the worker loads the engine and language data by file name from one folder,
+// so the folder is copied as is under a content-hashed name (listed as "ocr/"). Downloaded only when OCR runs.
+const OCR_LANGS = ['eng', 'tha', 'chi_sim', 'chi_tra', 'jpn', 'kor', 'vie', 'hin', 'ben', 'tam', 'tel', 'lao', 'khm', 'mya', 'rus'];
+const ocrFiles = [
+  ['worker.min.js', 'node_modules/tesseract.js/dist/worker.min.js'],
+  ...['tesseract-core-simd-lstm', 'tesseract-core-lstm'].flatMap((core) => ['.js', '.wasm'].map((ext) => [core + ext, `node_modules/tesseract.js-core/${core}${ext}`])),
+  ...OCR_LANGS.map((lang) => [`${lang}.traineddata.gz`, `node_modules/@tesseract.js-data/${lang}/4.0.0_best_int/${lang}.traineddata.gz`]),
+];
+const ocrHash = crypto.createHash('sha256');
+for (const [name, src] of ocrFiles) ocrHash.update(name).update(fs.readFileSync(src));
+const ocrDir = `a/ocr-${ocrHash.digest('hex').slice(0, 10)}`;
+fs.mkdirSync(path.join(out, ocrDir), { recursive: true });
+for (const [name, src] of ocrFiles) fs.copyFileSync(src, path.join(out, ocrDir, name));
+map['ocr/'] = `/${ocrDir}/`;
 const indexPath = path.join(out, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf8');
 // Site icons keep fixed names (browsers ask for /favicon.ico by themselves); a content hash in the links

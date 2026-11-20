@@ -32,6 +32,7 @@ import { ICONS } from "./ui/icons";
 import { decodeImage, encodeImage, isImageFile, pickImageFile, encodePixels } from "./ui/images";
 import { askImagePages, imagesToDoc, pdfNameFor, IMAGE_ACCEPT } from "./ui/imagepdf";
 import { scanDocument } from "./ui/scan";
+import { recogniseText } from "./ui/ocr";
 import { TOOL_INFO, Interact } from "./ui/interact";
 import { Links } from "./ui/links";
 import {
@@ -1636,6 +1637,7 @@ async function main(): Promise<void> {
       rect.bottom + 6,
       [
         { label: "Scan with camera…", run: () => void scanPages() },
+        { label: "Recognise text (OCR)…", disabled: app.limits.locked, run: () => void runOcr() },
         { label: "Print…", shortcut: "Ctrl+P", run: clickById("btn-print") },
         { label: "Export pages as images…", run: openExportImages },
         {
@@ -2101,6 +2103,11 @@ async function main(): Promise<void> {
     if (images.length) return openImages(images);
     toast(`${files[0].name} isn’t a PDF or an image Margin can open`, "err", 5e3);
   }
+  /** Recognise text (OCR) on scanned pages (ui/ocr.ts). */
+  async function runOcr(): Promise<void> {
+    if (interact.editor) interact.commitEditor();
+    await recogniseText(app);
+  }
   /**
    * Scan with camera: the scanner (ui/scan.ts), then its pages as a new PDF or added after the current page.
    * Scanned pages keep their own shape (long side as A4's), without margins.
@@ -2126,6 +2133,7 @@ async function main(): Promise<void> {
     app.dirty = true;
     refreshTopBar();
     session.schedule();
+    toast("Scanned. Recognise the text to make it searchable?", "ok", 10e3, { label: "Recognise text", run: () => void runOcr() });
   }
   /** Makes a new, unsaved PDF from images (asking for page size and margins). */
   async function openImages(images: File[]): Promise<void> {

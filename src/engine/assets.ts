@@ -40,4 +40,4 @@ async function fetchAsset(path: string): Promise<ArrayBuffer> {
   return response.arrayBuffer();
 }
 
-export { loadAsset };
+export { loadAsset, assetUrl };

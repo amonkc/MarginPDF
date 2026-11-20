@@ -440,5 +440,30 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// V. recognise text (OCR): a picture of English and Thai text, read with English + Thai, becomes searchable
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 900 } }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('ocr: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const img = await pg.evaluate(async () => {
+    const cv = new OffscreenCanvas(1700, 1100), x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 1700, 1100); x.fillStyle = '#111';
+    x.font = '56px serif'; x.fillText('The quick brown fox jumps over the lazy dog.', 80, 200); x.fillText('Invoice number 2026-118, total 4,250 baht.', 80, 320);
+    x.font = '60px sans-serif'; x.fillText('ภาษาไทยอ่านได้ถูกต้อง', 80, 460);
+    return Array.from(new Uint8Array(await (await cv.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+  });
+  await pg.locator('#file-open').setInputFiles([{ name: 'scan.png', mimeType: 'image/png', buffer: Buffer.from(img) }]); await pg.waitForSelector('.modal'); await pg.locator('.modal .btn.primary').click(); await pg.waitForTimeout(1200);
+  await pg.locator('#btn-more').click(); await pg.locator('.ctxmenu .ctx-item', { hasText: 'Recognise text' }).click(); await pg.waitForSelector('.modal');
+  await pg.locator('.modal .ocr-langs input').evaluateAll((els) => els.forEach((e) => (e.checked = ['eng', 'tha'].includes(e.value))));
+  await pg.locator('.modal .btn.primary').click();
+  await pg.waitForFunction(() => /^Recognised|^No text|failed/.test(document.querySelector('#toast')?.textContent || ''), null, { timeout: 180000 });
+  const found = await pg.evaluate(() => { const d = window.__margin.app.doc; return ['quick', 'lazy', '2026-118', 'ภาษาไทย'].map((w) => d.search(w).length > 0); });
+  const quick = await pg.evaluate(() => window.__margin.app.doc.search('quick')[0].rects[0]);
+  log('ocr', [(await pg.locator('#toast').innerText()).replace(/\d+ lines?/, 'N lines'), ...found, quick.l > 75 && quick.l < 95]);
+  // running it again with "skip pages that already have text" finds nothing to do
+  await pg.locator('#btn-more').click(); await pg.locator('.ctxmenu .ctx-item', { hasText: 'Recognise text' }).click(); await pg.waitForSelector('.modal'); await pg.locator('.modal .btn.primary').click(); await pg.waitForTimeout(500);
+  log('ocr again skips pages with text', (await pg.locator('#toast').innerText()).startsWith('Those pages already have text'));
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

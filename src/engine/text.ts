@@ -573,6 +573,48 @@ function removeById(doc: PdfDoc, pageIndex: number, id: string): void {
     api.FPDFPage_GenerateContent(page);
   });
 }
+/** A line of recognised text and its box on the page (PDF points). */
+export type OcrLine = { text: string; box: Rect };
+/**
+ * Puts recognised text on a page as invisible text (render mode 3), each line stretched to its box, so a
+ * scanned page can be searched, selected and copied. Replaces earlier OCR text on the page (mark "MarginOCR").
+ * Each line uses a font that has its characters, embedded as a subset. Resolves to the number of lines written.
+ */
+async function writeOcrText(doc: PdfDoc, pageIndex: number, lines: OcrLine[]): Promise<number> {
+  const api = doc.P, lib = doc.lib, keep = lines.filter((line) => line.text.trim() && line.box.r > line.box.l && line.box.t > line.box.b);
+  // One covering font per line; embedded once per font with all the characters it shows on this page.
+  const placed: { line: OcrLine; key: string }[] = [];
+  for (const line of keep) placed.push({ line, key: await coveringFontKey("sarabun", line.text) });
+  const handles = new Map<string, { font: LoadedFont; handle: Handle; key: string }>();
+  for (const key of new Set(placed.map((p) => p.key))) {
+    const face = resolveFace(fontByKey(key), {}), font = await loadFace(face), text = placed.filter((p) => p.key === key).map((p) => p.line.text).join("");
+    handles.set(key, { font, key, handle: await pdfFontFor(doc, face, font, text) });
+  }
+  const widths = await Promise.all(placed.map(({ line, key }) => measureWithFont(key, line.text, 100)));
+  doc.withPage(pageIndex, (page) => {
+    for (let i = api.FPDFPage_CountObjects(page) - 1; i >= 0; i--) {
+      const obj = api.FPDFPage_GetObject(page, i);
+      if (readTextMark(doc.lib, obj, "MarginOCR")) {
+        api.FPDFPage_RemoveObject(page, obj);
+        api.FPDFPageObj_Destroy(obj);
+      }
+    }
+    placed.forEach(({ line, key }, n) => {
+      const { box } = line, height = box.t - box.b, size = Math.max(1, height * 0.82), measured = (widths[n] * size) / 100;
+      const textObj = api.FPDFPageObj_CreateTextObj(doc.h, handles.get(key)!.handle, size), wide = lib.wstr(line.text);
+      api.FPDFText_SetText(textObj, wide);
+      lib.free(wide);
+      api.FPDFTextObj_SetTextRenderMode(textObj, 3);
+      const sx = measured > 0 ? (box.r - box.l) / measured : 1, matrixPtr = lib.floats([sx, 0, 0, 1, box.l, box.b + height * 0.2]);
+      api.FPDFPageObj_SetMatrix(textObj, matrixPtr);
+      lib.free(matrixPtr);
+      addMark(doc, textObj, "MarginOCR", { v: "1" });
+      api.FPDFPage_InsertObject(page, textObj);
+    });
+    api.FPDFPage_GenerateContent(page);
+  });
+  return placed.length;
+}
 /** Remove the page objects at these indexes. */
 function removeObjects(doc: PdfDoc, pageIndex: number, indexes: number[]): void {
   const api = doc.P;
@@ -845,4 +887,4 @@ function createImageObject(doc: PdfDoc, rgba: ArrayLike<number>, w: number, h: n
   return image;
 }
 
-export { FONT_GROUPS, splitByCoverage, coveringFontKey, outlineFontFor, onBigFontLoading, loadFont, isWinAnsi, measureText, stampAppearance, fontCss, removeObjects, parseStyleCode, styleCode, writeText, initShaper, loadFace, needsShaping, outlineFont, insertMarkedImage, removeById, renderFreeText, insertMarkedObject, drawFieldAppearance, resolveFace, measureWithFont, guessFontKey, FONTS, freeTextHeight, replaceObjectText, createImageObject, textPathObject, fontByKey };
+export { writeOcrText, FONT_GROUPS, splitByCoverage, coveringFontKey, outlineFontFor, onBigFontLoading, loadFont, isWinAnsi, measureText, stampAppearance, fontCss, removeObjects, parseStyleCode, styleCode, writeText, initShaper, loadFace, needsShaping, outlineFont, insertMarkedImage, removeById, renderFreeText, insertMarkedObject, drawFieldAppearance, resolveFace, measureWithFont, guessFontKey, FONTS, freeTextHeight, replaceObjectText, createImageObject, textPathObject, fontByKey };
