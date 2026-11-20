@@ -229,7 +229,7 @@ class Thumbs {
 /** The toolbar of page actions above the thumbnails (rotate and delete are on each page); `run` gets the action id. */
 function pageActions(run: (action: string) => void): HTMLElement {
   const button = (action: string, iconName: string, label: string) => h("button", { class: "iconbtn", type: "button", title: label, "aria-label": label, "data-act": action, onclick: () => run(action) }, icon(iconName));
-  return h("div", { class: "page-actions" }, button("insert", "plus", "Insert blank page after"), button("merge", "merge", "Insert pages from other PDFs"), button("copy", "copy", "Copy selected pages (Ctrl+C)"), button("paste", "paste", "Paste copied pages after the selected page (Ctrl+V)"), button("extract", "extract", "Extract or split pages"));
+  return h("div", { class: "page-actions" }, button("insert", "plus", "Insert blank page after"), button("merge", "merge", "Insert pages from other PDFs or images"), button("copy", "copy", "Copy selected pages (Ctrl+C)"), button("paste", "paste", "Paste copied pages after the selected page (Ctrl+V)"), button("extract", "extract", "Extract or split pages"));
 }
 
 export { pageActions, Thumbs };

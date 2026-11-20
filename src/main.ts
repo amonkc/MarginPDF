@@ -30,6 +30,7 @@ import { Forms, FIELD_KINDS } from "./ui/forms";
 import { headerFooterDialog } from "./ui/headerfooter";
 import { ICONS } from "./ui/icons";
 import { decodeImage, encodeImage, isImageFile, pickImageFile, encodePixels } from "./ui/images";
+import { askImagePages, imagesToDoc, pdfNameFor, IMAGE_ACCEPT } from "./ui/imagepdf";
 import { TOOL_INFO, Interact } from "./ui/interact";
 import { Links } from "./ui/links";
 import {
@@ -1486,10 +1487,11 @@ async function main(): Promise<void> {
     }
     ribbon.replaceChildren(...items);
   }
-  const openFileInput = h("input", { type: "file", accept: "application/pdf,.pdf", hidden: true, id: "file-open" });
+  const isPdfFile = (file: File) => /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+  const openFileInput = h("input", { type: "file", accept: "application/pdf,.pdf," + IMAGE_ACCEPT, multiple: true, hidden: true, id: "file-open" });
   const insertFileInput = h("input", {
     type: "file",
-    accept: "application/pdf,.pdf",
+    accept: "application/pdf,.pdf," + IMAGE_ACCEPT,
     multiple: true,
     hidden: true,
     id: "file-merge",
@@ -1659,7 +1661,7 @@ async function main(): Promise<void> {
         { label: "Header & footer…", run: clickById("btn-hf") },
         { label: "Flatten…", run: clickById("btn-flatten") },
         "sep",
-        { label: "Insert pages from PDF…", run: () => insertFileInput.click() },
+        { label: "Insert pages from PDF or images…", run: () => insertFileInput.click() },
         { label: "Replace pages…", run: () => replaceFileInput.click() },
         { label: "Extract or split pages…", run: () => pageAction("extract") },
       ],
@@ -1701,11 +1703,11 @@ async function main(): Promise<void> {
     );
   });
   openFileInput.addEventListener("change", () => {
-    const file = openFileInput.files?.[0];
-    if (file) {
-      openFile(file);
-    }
+    const files = [...(openFileInput.files || [])];
     openFileInput.value = "";
+    if (files.length) {
+      openFiles(files);
+    }
   });
   /** Where the next "Insert pages from PDF" pick goes (set by menus before opening the file picker). */
   let pendingInsertAt: number | null = null;
@@ -2089,6 +2091,48 @@ async function main(): Promise<void> {
     }
   });
   /** Opens a PDF file in place of the current document, asking first if there are unsaved changes. */
+  /** Opens what the user picked: a PDF, or images as a new PDF (one page each). */
+  async function openFiles(files: File[]): Promise<void> {
+    const pdf = files.find(isPdfFile);
+    if (pdf) return openFile(pdf);
+    const images = files.filter(isImageFile);
+    if (images.length) return openImages(images);
+    toast(`${files[0].name} isn’t a PDF or an image Margin can open`, "err", 5e3);
+  }
+  /** Makes a new, unsaved PDF from images (asking for page size and margins). */
+  async function openImages(images: File[]): Promise<void> {
+    if (app.dirty && !(await confirmDiscard())) return;
+    const options = await askImagePages(images.length, "Create PDF");
+    if (!options) return;
+    const made = await imagesAsDoc(images, options);
+    if (!made) return;
+    const bytes = made.save();
+    made.close();
+    await openSource(bytes, pdfNameFor(images[0]));
+    app.dirty = true; // a new document: nothing saved yet
+    refreshTopBar();
+    session.schedule();
+  }
+  /** imagesToDoc with progress and error messages; null (after a toast) if no image could be read. */
+  async function imagesAsDoc(images: File[], options: Parameters<typeof imagesToDoc>[2]): Promise<Doc | null> {
+    const note = images.length > 3 ? toast(`Adding images… 0 of ${images.length}`, "ok", 120e3) : null;
+    try {
+      const { doc, skipped } = await imagesToDoc(pdfium, images, options, (done) => {
+        note?.set(`Adding images… ${done} of ${images.length}`);
+      });
+      note?.close();
+      if (skipped.length) toast(`${skipped.length === images.length ? "" : "Skipped "}${skipped.join(", ")}: not an image this browser can read`, skipped.length === images.length ? "err" : "warn", 6e3);
+      if (!doc.pageCount) {
+        doc.close();
+        return null;
+      }
+      return doc;
+    } catch (err) {
+      note?.close();
+      toast((err as Error).message, "err", 6e3);
+      return null;
+    }
+  }
   async function openFile(file: File): Promise<void> {
     if (app.dirty && !(await confirmDiscard())) return;
     let source;
@@ -2326,8 +2370,21 @@ async function main(): Promise<void> {
   async function insertFiles(files: File[], at?: number): Promise<void> {
     const insertAt = at ?? (app.selectedPages.size ? Math.max(...app.selectedPages) + 1 : app.doc.pageCount);
     const docs: Array<{ f: File; doc: Doc }> = [];
+    const images = files.filter((file) => !isPdfFile(file) && isImageFile(file));
+    const imageOptions = images.length ? await askImagePages(images.length, "Insert") : null;
+    if (images.length && !imageOptions) return;
     try {
-      for (const file of files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        // A run of images in a row becomes one document of image pages.
+        if (!isPdfFile(file) && isImageFile(file)) {
+          const run: File[] = [];
+          while (i < files.length && !isPdfFile(files[i]) && isImageFile(files[i])) run.push(files[i++]);
+          i--;
+          const doc = await imagesAsDoc(run, imageOptions!);
+          if (doc) docs.push({ f: run[0], doc });
+          continue;
+        }
         const doc = await loadPdfFile(file, "insert pages from");
         if (!doc) {
           docs.forEach((entry) => entry.doc.close());
@@ -2335,6 +2392,7 @@ async function main(): Promise<void> {
         }
         docs.push({ f: file, doc });
       }
+      if (!docs.length) return;
     } catch (err) {
       docs.forEach((entry) => entry.doc.close());
       toast((err as Error).message, "err", 5e3);
@@ -2508,7 +2566,7 @@ async function main(): Promise<void> {
         { label: "Rotate right", disabled: !editAllowed, run: () => pageAction("rotr") },
         { label: "Insert blank page after", disabled: !editAllowed, run: () => pageAction("insert") },
         {
-          label: "Insert pages from PDF…",
+          label: "Insert pages from PDF or images…",
           disabled: !editAllowed,
           run: () => {
             pendingInsertAt = last + 1;
@@ -3775,10 +3833,10 @@ async function main(): Promise<void> {
     }
   });
   $("#thumbs").addEventListener("drop", (event) => {
-    const pdfs = [...(event.dataTransfer?.files || [])].filter((file) => /\.pdf$/i.test(file.name));
-    if (pdfs.length) {
+    const files = [...(event.dataTransfer?.files || [])].filter((file) => isPdfFile(file) || isImageFile(file));
+    if (files.length) {
       event.preventDefault();
-      insertFiles(pdfs);
+      insertFiles(files);
     }
   });
   /** Tool name by its single-key shortcut (lower case). */

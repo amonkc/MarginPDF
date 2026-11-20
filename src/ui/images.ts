@@ -111,4 +111,4 @@ async function encodePixels(rgba: Uint8ClampedArray, w: number, h: number, asJpe
   return { rgba, w, h };
 }
 
-export { decodeImage, encodeImage, isImageFile, defaultImageBox, pickImageFile, encodePixels, imageMatrix, dragImageBox };
+export { decodeImage, encodeImage, isImageFile, defaultImageBox, pickImageFile, encodePixels, imageMatrix, dragImageBox, IMAGE_ACCEPT };

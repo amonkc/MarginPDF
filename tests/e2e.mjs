@@ -383,5 +383,34 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// T. images to PDF: open images as a new PDF (one page each, paper turned to fit), insert images as pages
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 900 } }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('images: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const make = (w, h, type, colour) => pg.evaluate(async ([w, h, type, colour]) => {
+    const cv = new OffscreenCanvas(w, h), ctx = cv.getContext('2d'); ctx.fillStyle = colour; ctx.fillRect(0, 0, w, h); ctx.fillStyle = '#fff'; ctx.fillRect(w / 4, h / 4, w / 2, h / 2);
+    return Array.from(new Uint8Array(await (await cv.convertToBlob({ type, quality: 0.9 })).arrayBuffer()));
+  }, [w, h, type, colour]);
+  const files = [
+    { name: 'landscape.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(await make(1600, 1000, 'image/jpeg', '#c0392b')) },
+    { name: 'portrait.png', mimeType: 'image/png', buffer: Buffer.from(await make(800, 1200, 'image/png', '#2471a3')) },
+    { name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('not an image') },
+  ];
+  await pg.locator('#file-open').setInputFiles(files); await pg.waitForSelector('.modal');
+  const dialog = (await pg.locator('.modal').innerText()).replace(/\s+/g, ' ');
+  await pg.locator('.modal .btn.primary').click(); await pg.waitForTimeout(1500);
+  const doc = () => pg.evaluate(() => { const { app } = window.__margin; return { name: app.fileName, dirty: app.dirty, pages: Array.from({ length: app.doc.pageCount }, (_, i) => { const s = app.doc.pageSize(i); return Math.round(s.w) + 'x' + Math.round(s.h); }) }; });
+  log('images to PDF dialog', dialog);
+  log('images to PDF', [JSON.stringify(await doc()), (await pg.locator('#toast').innerText()).replace(/\s+/g, ' ')]);
+  // insert one more image as a page, after the selected page, Letter size with a small margin
+  await pg.locator('.thumb').nth(0).click();
+  await pg.locator('#file-merge').setInputFiles([{ name: 'more.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(await make(900, 900, 'image/jpeg', '#1e8449')) }]);
+  await pg.waitForSelector('.modal'); await pg.locator('.modal input[value=letter]').check(); await pg.locator('.modal input[name=ip-margin][value="18"]').check();
+  await pg.locator('.modal .btn.primary').click(); await pg.waitForTimeout(1500);
+  log('image inserted as page 2', JSON.stringify(await doc()));
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

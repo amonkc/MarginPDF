@@ -10,6 +10,14 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.33.0",
+    date: "2026-11-20",
+    notes: [
+      "Images to PDF: open photos or pictures (JPG, PNG, WebP, GIF, BMP, AVIF) and Margin makes a PDF with one page per image. Choose A4, Letter or the image’s own shape, and a margin; pages turn sideways for landscape images.",
+      "Insert pages from PDF or images: add pictures as new pages to the open document, from the Insert button or by dropping them on the Pages panel.",
+    ],
+  },
+  {
     version: "2.32.1",
     date: "2026-11-20",
     notes: ["The welcome document lists the languages you can write in, each with a greeting set in its own font. Click one with Edit text to try it."],
@@ -504,6 +512,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.32.1";
+const VERSION = "2.33.0";
 
 export { CHANGELOG, VERSION };
