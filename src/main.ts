@@ -34,6 +34,8 @@ import { askImagePages, imagesToDoc, pdfNameFor, IMAGE_ACCEPT } from "./ui/image
 import { scanDocument } from "./ui/scan";
 import { makeZip } from "./util/zip";
 import { damageOf } from "./engine/repair";
+import { detectFields } from "./ui/detect";
+import type { FieldCandidate } from "./ui/detect";
 import { recogniseText } from "./ui/ocr";
 import { compareDocs } from "./ui/compare";
 import { TOOL_INFO, Interact } from "./ui/interact";
@@ -1663,6 +1665,7 @@ async function main(): Promise<void> {
         { label: "Scan with camera…", run: () => void scanPages() },
         { label: "Recognise text (OCR)…", disabled: app.limits.locked, run: () => void runOcr() },
         { label: "Compare with another PDF…", run: () => compareFileInput.click() },
+        { label: "Detect form fields…", disabled: app.limits.locked, run: () => void detectFormFields() },
         { label: "Print…", shortcut: "Ctrl+P", run: clickById("btn-print") },
         { label: "Export pages as images…", run: openExportImages },
         { label: "Save all images…", run: () => void saveAllImages() },
@@ -3353,6 +3356,47 @@ async function main(): Promise<void> {
       await saveFile(new Uint8Array(await blob.arrayBuffer()), baseName + ".png", "image/png");
     } catch (err) {
       toast((err as Error).message, "err");
+    }
+  }
+  /**
+   * Detect form fields (ui/detect.ts): finds fill-in lines, boxes and checkboxes on every page, says what it
+   * found, and adds them as fields in one undoable step (named after their labels), then shows the Form tool.
+   */
+  async function detectFormFields(): Promise<void> {
+    if (interact.editor) interact.commitEditor();
+    const found: FieldCandidate[] = [];
+    for (let page = 0; page < app.doc.pageCount; page++) {
+      const taken = [...app.doc.fields(page).map((f) => f.rect), ...app.doc.annots(page).map((a) => a.rect)];
+      found.push(...detectFields(app.doc, page, taken));
+    }
+    if (!found.length) return void toast("No fill-in lines, boxes or checkboxes were found. Add fields by hand with the Form tool.", "ok", 6e3);
+    const pages = [...new Set(found.map((c) => c.page))], boxes = found.filter((c) => c.kind === "checkbox").length, texts = found.length - boxes;
+    const parts = [texts && `${texts} text field${texts === 1 ? "" : "s"}`, boxes && `${boxes} checkbox${boxes === 1 ? "" : "es"}`].filter(Boolean).join(" and ");
+    const choice = await modal({
+      title: "Detect form fields",
+      body: h("div", { class: "stack" },
+        h("p", { class: "modal-text", text: `Found ${found.length} place${found.length === 1 ? "" : "s"} to fill in on ${pages.length === 1 ? "page " + (pages[0] + 1) : pages.length + " pages"}: ${parts}.` }),
+        h("p", { class: "hint", text: "Each is named after the words next to it. Check them afterwards with the Form tool: rename, resize or delete any that aren’t right. Undo removes them all." })),
+      actions: [{ id: "cancel", label: "Cancel" }, { id: "ok", label: "Add fields", primary: true }],
+    });
+    if (choice !== "ok") return;
+    const names = new Set<string>();
+    for (let page = 0; page < app.doc.pageCount; page++) for (const field of app.doc.fields(page)) names.add(field.name);
+    const nameFor = (label: string, kind: string) => {
+      const base = (label || (kind === "checkbox" ? "Check" : "Text")).replace(/\./g, " ").trim();
+      let name = base, n = 2;
+      while (names.has(name)) name = `${base} ${n++}`;
+      names.add(name);
+      return name;
+    };
+    try {
+      await app.mutate("Detect form fields", { pages: "all" }, () => {
+        for (const c of found) app.doc.createField(c.page, c.kind, c.rect, nameFor(c.label, c.kind));
+      });
+      app.setTool("form");
+      toast(`Added ${found.length} field${found.length === 1 ? "" : "s"}. Click one to fill it in, or right-click to rename or delete.`, "ok", 6e3);
+    } catch (err) {
+      toast((err as Error).message, "err", 5e3);
     }
   }
   /**

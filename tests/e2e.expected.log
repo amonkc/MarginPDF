@@ -1,4 +1,4 @@
-version v2.39.0
+version v2.40.0
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -105,4 +105,5 @@ compare ["2 changes: 8 words added, 14 removed.","Page 1 Highlights, notes and d
 combine files ["first.pdf, second.pdf, photo.png","first.pdf, photo.png, second.pdf","first-combined.pdf",7,true,0,"612x792"]
 save all images ["a-images.zip","a-p1-1.jpg, a-p2-1.png"]
 repair [true,false,"damaged.pdf",3,"This PDF was damaged (its index points to the wrong place). Margin recovered it; save a repaired copy to open it in other apps.Save repaired copy","damaged-repaired.pdf",true]
+detect form fields ["Found 5 places to fill in on page 4: 4 text fields and 1 checkbox.","Comments:6, Date of birth:6, Full name:6, I agree to the terms:2, Phone:6","0,5,0","form","Detect form fields"]
 errors []

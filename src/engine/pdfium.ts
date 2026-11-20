@@ -2095,6 +2095,91 @@ class Doc {
     });
   }
   /** The raw JPEG bytes of an image object, if its data is a JPEG (starts FF D8); else null. */
+  /**
+   * The straight lines and rectangles a page draws (top-level path objects, in page points), for spotting fill-in
+   * lines and boxes: horizontal and vertical segments, and closed axis-aligned rectangles. Thin filled rectangles
+   * count as lines.
+   */
+  pageRules(index: number): { h: Rect[]; v: Rect[]; boxes: Rect[] } {
+    const P = this.P, lib = this.lib, out = { h: [] as Rect[], v: [] as Rect[], boxes: [] as Rect[] };
+    return this.withPage(index, (page) => lib.tmp((alloc) => {
+      const m = alloc(24), pt = alloc(8);
+      for (let i = 0, n = P.FPDFPage_CountObjects(page); i < n; i++) {
+        const obj = P.FPDFPage_GetObject(page, i);
+        if (P.FPDFPageObj_GetType(obj) !== 2) continue;
+        P.FPDFPageObj_GetMatrix(obj, m);
+        const [a, b, c, d, e, f] = lib.readFloats(m, 6), map = (x: number, y: number): [number, number] => [a * x + c * y + e, b * x + d * y + f];
+        let sub: [number, number][] = [], prev: [number, number] | null = null;
+        const flush = () => {
+          // A closed four-sided axis-aligned subpath is a rectangle.
+          const near = (p: [number, number], q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.5;
+          const pts = sub.filter((p, i) => i === 0 || !near(p, sub[i - 1]));
+          while (pts.length > 1 && near(pts[0], pts[pts.length - 1])) pts.pop();
+          if (pts.length === 4) {
+            const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]), l = Math.min(...xs), r = Math.max(...xs), bt = Math.min(...ys), t = Math.max(...ys);
+            if (pts.every(([x, y]) => (Math.abs(x - l) < 0.5 || Math.abs(x - r) < 0.5) && (Math.abs(y - bt) < 0.5 || Math.abs(y - t) < 0.5))) {
+              if (t - bt <= 2.5) out.h.push({ l, r, b: bt, t });
+              else if (r - l <= 2.5) out.v.push({ l, r, b: bt, t });
+              else out.boxes.push({ l, r, b: bt, t });
+            }
+          }
+          sub = [];
+        };
+        for (let k = 0, count = P.FPDFPath_CountSegments(obj); k < count; k++) {
+          const seg = P.FPDFPath_GetPathSegment(obj, k), type = P.FPDFPathSegment_GetType(seg);
+          P.FPDFPathSegment_GetPoint(seg, pt, pt + 4);
+          const p = map(lib.M.getValue(pt, "float"), lib.M.getValue(pt + 4, "float"));
+          // FPDF_SEGMENT_LINETO 0, BEZIERTO 1, MOVETO 2
+          if (type === 1) {
+            // a curve: this subpath isn't a ruled line or a box
+            sub = [];
+            prev = p;
+            continue;
+          }
+          if (type === 2) flush();
+          else if (prev && type === 0) {
+            const dx = Math.abs(p[0] - prev[0]), dy = Math.abs(p[1] - prev[1]);
+            if (dy < 0.5 && dx >= 4) out.h.push({ l: Math.min(p[0], prev[0]), r: Math.max(p[0], prev[0]), b: p[1], t: p[1] });
+            else if (dx < 0.5 && dy >= 4) out.v.push({ l: p[0], r: p[0], b: Math.min(p[1], prev[1]), t: Math.max(p[1], prev[1]) });
+          }
+          sub.push(p);
+          prev = p;
+          if (P.FPDFPathSegment_GetClose(seg)) {
+            sub.push(sub[0]);
+            flush();
+          }
+        }
+        flush();
+      }
+      return out;
+    }));
+  }
+  /** Matches of a pattern in a page's text, with their boxes (e.g. runs of underscores). */
+  findTextRuns(index: number, pattern: RegExp): { text: string; rects: Rect[] }[] {
+    const P = this.P, lib = this.lib;
+    return this.withPage(index, (_page, textPage) => {
+      const count = P.FPDFText_CountChars(textPage);
+      if (count <= 0) return [];
+      const text: string = lib.tmp((alloc) => {
+        const buf = alloc((count + 1) * 2);
+        P.FPDFText_GetText(textPage, 0, count, buf);
+        return lib.M.UTF16ToString(buf);
+      }), out: { text: string; rects: Rect[] }[] = [];
+      lib.tmp((alloc) => {
+        const buf = alloc(32);
+        for (const match of text.matchAll(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g"))) {
+          const rects: Rect[] = [], n = P.FPDFText_CountRects(textPage, match.index!, match[0].length);
+          for (let k = 0; k < n; k++) {
+            P.FPDFText_GetRect(textPage, k, buf, buf + 8, buf + 16, buf + 24);
+            const [l, t, r, b] = lib.readDoubles(buf, 4);
+            rects.push({ l, t, r, b });
+          }
+          out.push({ text: match[0], rects });
+        }
+      });
+      return out;
+    }, { text: true });
+  }
   /** Indexes of a page's image objects (top level). */
   imageObjects(index: number): number[] {
     const P = this.P;

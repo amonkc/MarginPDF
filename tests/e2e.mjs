@@ -553,5 +553,41 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// AA. detect form fields on a printed-style form: ruled lines, typed underscores, a checkbox and a box; a table ignored
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 1000 } }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('detect fields: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const n = await pg.evaluate(async () => {
+  const { app, writeRichText } = window.__margin, doc = app.doc, P = doc.P, n = doc.pageCount;
+  await app.mutate('test form', { pages: 'all', structure: true }, async () => {
+    doc.insertBlank(n, 612, 792);
+    const text = async (t, x, y, size = 12) => writeRichText(doc, n, { v: 1, paras: [[{ t }]], font: 'helv', size, color: '171a21', align: 'left', lh: 1.2, bm: [1, 0, 0, 1, x, y] });
+    await text('Application form', 72, 740, 18);
+    await text('Full name:', 72, 700); await text('Date of birth:', 72, 660); await text('Phone: ____________________', 72, 620);
+    await text('I agree to the terms', 92, 580); await text('Comments', 72, 548);
+    for (const [r, row] of [['Item', 'Qty'], ['Pens', '4'], ['Paper', '2']].entries()) for (const [c, cell] of row.entries()) await text(cell, 80 + c * 150, 372 - r * 30);
+    doc.withPage(n, (page) => {
+      const line = (x0, y0, x1, y1) => { const p = P.FPDFPageObj_CreateNewPath(x0, y0); P.FPDFPath_LineTo(p, x1, y1); P.FPDFPath_SetDrawMode(p, 0, 1); P.FPDFPageObj_SetStrokeWidth(p, 0.8); P.FPDFPage_InsertObject(page, p); };
+      const rect = (x, y, w, h) => { const p = P.FPDFPageObj_CreateNewRect(x, y, w, h); P.FPDFPath_SetDrawMode(p, 0, 1); P.FPDFPageObj_SetStrokeWidth(p, 0.8); P.FPDFPage_InsertObject(page, p); };
+      line(140, 698, 420, 698); line(160, 658, 300, 658);
+      rect(72, 577, 12, 12); rect(72, 440, 468, 100);
+      for (let i = 0; i <= 3; i++) line(72, 390 - i * 30, 522, 390 - i * 30); for (let i = 0; i <= 3; i++) line(72 + i * 150, 390, 72 + i * 150, 300);
+      P.FPDFPage_GenerateContent(page);
+    });
+  });
+  window.__margin.viewer.scrollToPage(n);
+  return n;
+});
+  await pg.waitForTimeout(500);
+  await pg.locator('#btn-more').click(); await pg.locator('.ctxmenu .ctx-item', { hasText: 'Detect form fields' }).click(); await pg.waitForSelector('.modal');
+  const dialog = (await pg.locator('.modal p').first().innerText());
+  await pg.locator('.modal .btn.primary').click(); await pg.waitForTimeout(800);
+  const fields = await pg.evaluate((n) => window.__margin.app.doc.fields(n).map((f) => f.name + ':' + f.type).sort().join(', '), n);
+  const others = await pg.evaluate((n) => Array.from({ length: n }, (_, i) => window.__margin.app.doc.fields(i).length).join(','), n);
+  log('detect form fields', [dialog, fields, others, await pg.evaluate(() => window.__margin.app.tool), await pg.evaluate(() => window.__margin.app.undoLabel)]);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();
