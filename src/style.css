@@ -2913,3 +2913,46 @@ input.sw.custom::-moz-color-swatch { border: 0; opacity: 0; }
 .cmp-mark.on {
   outline: 2px solid var(--accent);
 }
+
+/* Combine files: order list (main.ts askFileOrder) */
+.combine-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: combine;
+  max-height: 50vh;
+  overflow: auto;
+}
+.combine-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--line);
+  counter-increment: combine;
+}
+.combine-list li::before {
+  content: counter(combine);
+  min-width: 1.6em;
+  color: var(--ink-faint);
+  font: 12px var(--f-mono);
+}
+.combine-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.combine-kind {
+  color: var(--ink-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.combine-list .tact {
+  color: var(--ink-soft);
+}
+.combine-list .tact:disabled {
+  opacity: 0.3;
+  cursor: default;
+}

@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.37.0",
+    date: "2026-11-20",
+    notes: ["Open several files at once (PDFs and images, from Open or by dropping them on the page) and Margin combines them into one new PDF. Put them in order first, or leave some out."],
+  },
+  {
     version: "2.36.0",
     date: "2026-11-20",
     notes: [
@@ -534,6 +539,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.36.0";
+const VERSION = "2.37.0";
 
 export { CHANGELOG, VERSION };

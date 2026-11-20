@@ -1,4 +1,4 @@
-version v2.36.0
+version v2.37.0
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -102,4 +102,5 @@ scan [true,true,true,true,1,842,true]
 ocr ["Recognised N lines of text on 1 page. You can now search, select and copy it.",true,true,true,true,true]
 ocr again skips pages with text true
 compare ["2 changes: 8 words added, 14 removed.","Page 1 Highlights, notes and drawings you add are listed in the Comments panel. | Page 1 This sentence was added for the comparison.",14,8,true,true,"2 changes: 14 words added, 8 removed.",0]
+combine files ["first.pdf, second.pdf, photo.png","first.pdf, photo.png, second.pdf","first-combined.pdf",7,true,0,"612x792"]
 errors []

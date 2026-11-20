@@ -2120,11 +2120,72 @@ async function main(): Promise<void> {
   /** Opens a PDF file in place of the current document, asking first if there are unsaved changes. */
   /** Opens what the user picked: a PDF, or images as a new PDF (one page each). */
   async function openFiles(files: File[]): Promise<void> {
-    const pdf = files.find(isPdfFile);
-    if (pdf) return openFile(pdf);
-    const images = files.filter(isImageFile);
-    if (images.length) return openImages(images);
-    toast(`${files[0].name} isn’t a PDF or an image Margin can open`, "err", 5e3);
+    const usable = files.filter((file) => isPdfFile(file) || isImageFile(file));
+    if (!usable.length) {
+      toast(`${files[0].name} isn’t a PDF or an image Margin can open`, "err", 5e3);
+      return;
+    }
+    const pdfs = usable.filter(isPdfFile);
+    if (pdfs.length === 1 && usable.length === 1) return openFile(pdfs[0]);
+    if (!pdfs.length) return openImages(usable);
+    return combineFiles(usable);
+  }
+  /**
+   * Several files at once: put them in order, then one new document with all their pages (images as pages).
+   * The combined document starts unsaved, with no undo history of its own making.
+   */
+  async function combineFiles(files: File[]): Promise<void> {
+    if (app.dirty && !(await confirmDiscard())) return;
+    const order = await askFileOrder(files);
+    if (!order) return;
+    const [first, ...rest] = order;
+    if (isPdfFile(first)) {
+      await openFile(first);
+      if (app.fileName !== first.name) return; // not opened (cancelled password, unreadable)
+    } else {
+      // A leading run of images becomes the first pages.
+      let n = 0;
+      while (n < order.length && !isPdfFile(order[n])) n++;
+      const options = await askImagePages(order.filter((f) => !isPdfFile(f)).length, "Create PDF");
+      if (!options) return;
+      const made = await imagesAsDoc(order.slice(0, n), options);
+      if (!made) return;
+      const bytes = made.save();
+      made.close();
+      await openSource(bytes, pdfNameFor(first));
+      rest.splice(0, n - 1);
+      pendingImageOptions = options;
+    }
+    if (rest.length) await insertFiles(rest, app.doc.pageCount);
+    pendingImageOptions = null;
+    app.undoStack = [];
+    app.redoStack = [];
+    app.dirty = true;
+    app.fileName = app.fileName.replace(/\.pdf$/i, "") + "-combined.pdf";
+    refreshTopBar();
+    session.schedule();
+    app.emit({ pages: "all", structure: true });
+    toast(`Combined ${order.length} files into one PDF of ${app.doc.pageCount} pages.`, "ok", 4e3);
+  }
+  /** Image page options already chosen during a combine (so they aren't asked twice). */
+  let pendingImageOptions: Parameters<typeof imagesToDoc>[2] | null = null;
+  /** The order to combine files in: a list with move up / down / remove. Null if cancelled. */
+  async function askFileOrder(files: File[]): Promise<File[] | null> {
+    const order = [...files], list = h("ol", { class: "combine-list" });
+    const kb = (n: number) => (n < 1048576 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1) + " MB");
+    const draw = () => list.replaceChildren(...order.map((file, i) => h("li", {},
+      h("span", { class: "combine-name", text: file.name, title: file.name }),
+      h("span", { class: "combine-kind", text: (isPdfFile(file) ? "PDF" : "image") + " · " + kb(file.size) }),
+      h("button", { class: "tact", type: "button", "aria-label": `Move ${file.name} up`, title: "Move up", disabled: i === 0, onclick: () => (([order[i - 1], order[i]] = [order[i], order[i - 1]]), draw()) }, icon("up")),
+      h("button", { class: "tact", type: "button", "aria-label": `Move ${file.name} down`, title: "Move down", disabled: i === order.length - 1, onclick: () => (([order[i + 1], order[i]] = [order[i], order[i + 1]]), draw()) }, icon("down")),
+      h("button", { class: "tact danger", type: "button", "aria-label": `Leave out ${file.name}`, title: "Leave out", disabled: order.length < 2, onclick: () => (order.splice(i, 1), draw()) }, icon("close")))));
+    draw();
+    const choice = await modal({
+      title: `Combine ${files.length} files`,
+      body: h("div", { class: "stack" }, h("p", { class: "modal-text", text: "Their pages go into one new PDF in this order. You can still reorder pages afterwards." }), list),
+      actions: [{ id: "cancel", label: "Cancel" }, { id: "ok", label: "Combine", primary: true }],
+    });
+    return choice === "ok" && order.length ? order : null;
   }
   /** Recognise text (OCR) on scanned pages (ui/ocr.ts). */
   async function runOcr(): Promise<void> {
@@ -2430,7 +2491,7 @@ async function main(): Promise<void> {
     const insertAt = at ?? (app.selectedPages.size ? Math.max(...app.selectedPages) + 1 : app.doc.pageCount);
     const docs: Array<{ f: File; doc: Doc }> = [];
     const images = files.filter((file) => !isPdfFile(file) && isImageFile(file));
-    const imageOptions = images.length ? await askImagePages(images.length, "Insert") : null;
+    const imageOptions = images.length ? pendingImageOptions || (await askImagePages(images.length, "Insert")) : null;
     if (images.length && !imageOptions) return;
     try {
       for (let i = 0; i < files.length; i++) {
@@ -3883,7 +3944,7 @@ async function main(): Promise<void> {
     );
     if (pdfs.length) {
       event.preventDefault();
-      openFile(pdfs[0]);
+      openFiles(pdfs);
     }
   });
   $("#thumbs").addEventListener("dragover", (event) => {

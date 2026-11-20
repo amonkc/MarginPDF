@@ -493,5 +493,30 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// X. open several files at once: put in order, combined into one new unsaved PDF
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 900 } }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('combine: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const pdfOf = (pages) => pg.evaluate(async (pages) => { const { app } = window.__margin; const bytes = app.exportBytes(); return Array.from(bytes); }, pages);
+  const welcome = await pdfOf(3);
+  const png = await pg.evaluate(async () => { const cv = new OffscreenCanvas(600, 800), x = cv.getContext('2d'); x.fillStyle = '#2471a3'; x.fillRect(0, 0, 600, 800); return Array.from(new Uint8Array(await (await cv.convertToBlob({ type: 'image/png' })).arrayBuffer())); });
+  await pg.locator('#file-open').setInputFiles([
+    { name: 'first.pdf', mimeType: 'application/pdf', buffer: Buffer.from(welcome) },
+    { name: 'second.pdf', mimeType: 'application/pdf', buffer: Buffer.from(welcome) },
+    { name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from(png) },
+  ]);
+  await pg.waitForSelector('.modal .combine-list');
+  const listed = (await pg.locator('.combine-list li').allInnerTexts()).map((t) => t.split('\n')[0]);
+  await pg.locator('.combine-list li').nth(2).locator('[title="Move up"]').click(); // photo before second.pdf
+  const reordered = (await pg.locator('.combine-name').allInnerTexts()).join(', ');
+  await pg.locator('.modal .btn.primary').click();
+  await pg.waitForSelector('.modal .ocr-langs, .modal input[name=ip-size]'); await pg.locator('.modal .btn.primary').click();
+  await pg.waitForFunction(() => /^Combined/.test(document.querySelector('#toast')?.textContent || ''), null, { timeout: 30000 });
+  const result = await pg.evaluate(() => { const { app } = window.__margin; return [app.fileName, app.doc.pageCount, app.dirty, app.undoStack.length, Math.round(app.doc.pageSize(3).w) + 'x' + Math.round(app.doc.pageSize(3).h)]; });
+  log('combine files', [listed.join(', '), reordered, ...result]);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();
