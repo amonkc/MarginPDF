@@ -33,6 +33,7 @@ import { decodeImage, encodeImage, isImageFile, pickImageFile, encodePixels } fr
 import { askImagePages, imagesToDoc, pdfNameFor, IMAGE_ACCEPT } from "./ui/imagepdf";
 import { scanDocument } from "./ui/scan";
 import { makeZip } from "./util/zip";
+import { damageOf } from "./engine/repair";
 import { recogniseText } from "./ui/ocr";
 import { compareDocs } from "./ui/compare";
 import { TOOL_INFO, Interact } from "./ui/interact";
@@ -1665,6 +1666,7 @@ async function main(): Promise<void> {
         { label: "Print…", shortcut: "Ctrl+P", run: clickById("btn-print") },
         { label: "Export pages as images…", run: openExportImages },
         { label: "Save all images…", run: () => void saveAllImages() },
+        { label: "Save a repaired copy", run: () => void saveRepairedCopy() },
         {
           label: "Compress…",
           run: () => {
@@ -2305,7 +2307,10 @@ async function main(): Promise<void> {
       app.open(source, name, password);
       viewer.el.scrollTop = 0;
       thumbs.list.scrollTop = 0;
-      if (app.limits.locked) {
+      const damage = damageOf(source instanceof Uint8Array ? source : source.view());
+      if (damage) {
+        toast(`This PDF was damaged (${damage}). Margin recovered it; save a repaired copy to open it in other apps.`, "warn", 12e3, { label: "Save repaired copy", run: () => void saveRepairedCopy() });
+      } else if (app.limits.locked) {
         toast(
           "This PDF limits what can be changed. To edit it, unlock it with its permissions password (the lock button).",
           "warn",
@@ -3348,6 +3353,19 @@ async function main(): Promise<void> {
       await saveFile(new Uint8Array(await blob.arrayBuffer()), baseName + ".png", "image/png");
     } catch (err) {
       toast((err as Error).message, "err");
+    }
+  }
+  /**
+   * Saves the document rewritten in full (fresh cross-reference index, no leftover updates), named
+   * "<name>-repaired.pdf". What fixes a damaged file for other apps (engine/repair.ts).
+   */
+  async function saveRepairedCopy(): Promise<void> {
+    if (interact.editor) interact.commitEditor();
+    if (app.cur > FULL_SAVE_MAX) return void toast("This file is too large to rewrite in a browser tab.", "err", 5e3);
+    try {
+      await saveFile(app.doc.save(), app.fileName.replace(/\.pdf$/i, "") + "-repaired.pdf");
+    } catch (err) {
+      toast((err as Error).message, "err", 5e3);
     }
   }
   /**

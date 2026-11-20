@@ -536,5 +536,22 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// Z. a damaged PDF (broken index) opens recovered, with an offer to save a repaired copy that is sound
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('repair: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const good = Buffer.from(await pg.evaluate(() => Array.from(window.__margin.app.exportBytes())));
+  const sound = (buf) => { const tail = buf.subarray(-8192).toString('latin1'), m = /startxref\s+(\d+)\s+%%EOF/.exec(tail.slice(tail.lastIndexOf('startxref'))); return !!m && /^\s*(xref|\d+\s+\d+\s+obj)/.test(buf.subarray(+m[1], +m[1] + 40).toString('latin1')); };
+  // break the index: point startxref somewhere wrong
+  const text = good.toString('latin1'), at = text.lastIndexOf('startxref'), broken = Buffer.from(text.slice(0, at) + 'startxref\n12345\n%%EOF\n', 'latin1');
+  await pg.locator('#file-open').setInputFiles({ name: 'damaged.pdf', mimeType: 'application/pdf', buffer: broken }); await pg.waitForTimeout(1200);
+  const opened = await pg.evaluate(() => [window.__margin.app.fileName, window.__margin.app.doc.pageCount]), warning = await pg.locator('#toast').innerText();
+  const [download] = await Promise.all([pg.waitForEvent('download'), pg.locator('#toast button', { hasText: 'Save repaired copy' }).click()]);
+  const repaired = await (await download.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks));
+  log('repair', [sound(good), sound(broken), ...opened, warning.replace(/\s+/g, ' '), download.suggestedFilename(), sound(repaired)]);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

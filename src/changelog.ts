@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.39.0",
+    date: "2026-11-20",
+    notes: ["Damaged PDFs: when a file’s structure is broken (often after an interrupted download or a faulty program), Margin says so as it recovers it and offers to save a repaired copy that other apps can open. Save a repaired copy is also in the More menu."],
+  },
+  {
     version: "2.38.0",
     date: "2026-11-20",
     notes: ["Save all images (More menu): every picture in the PDF in one ZIP, photos kept in their original JPEG quality, others as PNG. Repeated pictures (a logo on every page) are saved once."],
@@ -544,6 +549,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.38.0";
+const VERSION = "2.39.0";
 
 export { CHANGELOG, VERSION };
