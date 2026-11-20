@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.41.0",
+    date: "2026-11-20",
+    notes: ["Save as Markdown or text (More menu): the PDF’s text in reading order, with lines rejoined into paragraphs (Thai, Chinese and Japanese without stray spaces, hyphenated words mended) and page numbers left out. Markdown also keeps headings, from larger or bold text, and bulleted and numbered lists. Scans need Recognise text first."],
+  },
+  {
     version: "2.40.0",
     date: "2026-11-20",
     notes: ["Detect form fields (More menu): turns a printed form into a fillable one. Margin finds fill-in lines, typed underscores, empty boxes and checkboxes, names each field after the words beside it, and adds them all in one step (Undo removes them). Tables are left alone."],
@@ -554,6 +559,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.40.0";
+const VERSION = "2.41.0";
 
 export { CHANGELOG, VERSION };

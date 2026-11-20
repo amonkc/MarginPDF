@@ -35,6 +35,7 @@ import { scanDocument } from "./ui/scan";
 import { makeZip } from "./util/zip";
 import { damageOf } from "./engine/repair";
 import { detectFields } from "./ui/detect";
+import { saveAsText } from "./ui/textexport";
 import type { FieldCandidate } from "./ui/detect";
 import { recogniseText } from "./ui/ocr";
 import { compareDocs } from "./ui/compare";
@@ -1669,6 +1670,7 @@ async function main(): Promise<void> {
         { label: "Print…", shortcut: "Ctrl+P", run: clickById("btn-print") },
         { label: "Export pages as images…", run: openExportImages },
         { label: "Save all images…", run: () => void saveAllImages() },
+        { label: "Save as Markdown or text…", run: () => void saveAsText(app, saveFile) },
         { label: "Save a repaired copy", run: () => void saveRepairedCopy() },
         {
           label: "Compress…",

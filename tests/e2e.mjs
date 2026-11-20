@@ -589,5 +589,22 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// AB. save as Markdown / text: the welcome PDF's headings, paragraphs (Thai lines joined without a space) and plain text
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('save as text: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const save = async (format) => {
+    await pg.locator('#btn-more').click(); await pg.locator('.ctxmenu .ctx-item', { hasText: 'Save as Markdown' }).click(); await pg.waitForSelector('.modal');
+    await pg.locator(`.modal input[value=${format}]`).check();
+    const [d] = await Promise.all([pg.waitForEvent('download'), pg.locator('.modal .btn.primary').click()]);
+    return [d.suggestedFilename(), Buffer.concat(await (await d.createReadStream()).toArray()).toString('utf8')];
+  };
+  const [mdName, md] = await save('md'), [txtName, txt] = await save('txt');
+  const blocks = md.trim().split(/\n\n/);
+  log('save as text', [mdName, blocks.filter((x) => x.startsWith('#')).join(' | '), blocks.length, blocks.some((x) => /^ภาษาไทย.*ฐานวรรณยุกต์/.test(x)), md.includes('Edit text Choose Edit text (E)'), txtName, /^#/m.test(txt), txt.trim().split(/\n\n/).length]);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

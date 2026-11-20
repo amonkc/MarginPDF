@@ -23,6 +23,8 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
   `scripts/web.mjs` from node_modules into one hashed folder (`ocr/` in the asset map); no binaries in git.
 - `src/ui/imagepdf.ts`, `src/ui/scan.ts` + `scanimage.ts` — images to PDF; scan with camera (edge detection, warp, filters).
 - `src/ui/detect.ts` — detect form fields (`Doc.pageRules`: lines/boxes from paths; `Doc.findTextRuns`: underscores, ☐).
+- `src/ui/textexport.ts` — save as Markdown/plain text (`Doc.pageLines`: lines with size, bold, position; headings,
+  lists and paragraphs by heuristic).
 - `src/engine/repair.ts` — spots a damaged PDF on open (header, %%EOF, startxref target); saves are full rewrites, which repair it.
 - `src/ui/compare.ts` + `diff.ts` — compare two PDFs (Myers word diff over `Doc.pageTokens`, and a pixel overlay).
 - `src/updates.ts` — checks `/version.json` (emitted by `vite.config.ts` from the changelog, `no-cache`) when the tab

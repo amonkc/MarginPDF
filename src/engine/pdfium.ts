@@ -2180,6 +2180,50 @@ class Doc {
       return out;
     }, { text: true });
   }
+  /**
+   * A page's text as lines in reading order (PDFium's line breaks), each with its main font size, whether it is
+   * mostly bold, and its left edge and vertical extent in page points, for turning a PDF into Markdown.
+   */
+  pageLines(index: number): { text: string; size: number; bold: boolean; x: number; top: number; bottom: number }[] {
+    const P = this.P, lib = this.lib;
+    return this.withPage(index, (_page, textPage) => lib.tmp((alloc) => {
+      const count = P.FPDFText_CountChars(textPage), box = alloc(32), out: { text: string; size: number; bold: boolean; x: number; top: number; bottom: number }[] = [];
+      let text = "", sizes: number[] = [], boldChars = 0, letters = 0, x = Infinity, top = -Infinity, bottom = Infinity;
+      const flush = () => {
+        if (text.trim()) {
+          sizes.sort((a, b) => a - b);
+          out.push({ text: text.replace(/\s+/g, " ").trim(), size: sizes[sizes.length >> 1] || 0, bold: letters > 0 && boldChars / letters > 0.6, x, top, bottom });
+        }
+        text = "";
+        sizes = [];
+        boldChars = letters = 0;
+        x = Infinity;
+        top = -Infinity;
+        bottom = Infinity;
+      };
+      for (let i = 0; i < count; i++) {
+        const code = P.FPDFText_GetUnicode(textPage, i);
+        if (code === 10 || code === 13) {
+          if (code === 10 || P.FPDFText_GetUnicode(textPage, i + 1) !== 10) flush();
+          continue;
+        }
+        const ch = String.fromCodePoint(code || 32);
+        text += ch;
+        if (/\s/.test(ch)) continue;
+        sizes.push(Math.round(P.FPDFText_GetFontSize(textPage, i) * 10) / 10);
+        letters++;
+        if (P.FPDFText_GetFontWeight(textPage, i) >= 600) boldChars++;
+        if (P.FPDFText_GetCharBox(textPage, i, box, box + 8, box + 16, box + 24)) {
+          const [l, , b, t] = lib.readDoubles(box, 4);
+          x = Math.min(x, l);
+          top = Math.max(top, t);
+          bottom = Math.min(bottom, b);
+        }
+      }
+      flush();
+      return out;
+    }), { text: true });
+  }
   /** Indexes of a page's image objects (top level). */
   imageObjects(index: number): number[] {
     const P = this.P;
