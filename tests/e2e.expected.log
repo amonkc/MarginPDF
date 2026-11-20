@@ -1,4 +1,4 @@
-version v2.33.0
+version v2.34.0
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -98,4 +98,5 @@ languages: saved file grew by under 200 KB true
 images to PDF dialog Images to PDF Each of the 3 images becomes a page, in the order you chose them. Page size A4 Letter Same shape as the image Margin None Small Large Pages turn sideways for landscape images. Photos are kept at up to 300 dpi. Cancel Create PDF
 images to PDF ["{\"name\":\"landscape.pdf\",\"dirty\":true,\"pages\":[\"792x612\",\"612x792\"]}","Skipped broken.png: not an image this browser can read"]
 image inserted as page 2 {"name":"landscape.pdf","dirty":true,"pages":["792x612","612x792","612x792"]}
+scan [true,true,true,true,1,842,true]
 errors []

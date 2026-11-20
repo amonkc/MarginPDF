@@ -10,6 +10,13 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.34.0",
+    date: "2026-11-20",
+    notes: [
+      "Scan with camera (More menu): photograph paper pages with your phone, or choose photos. Margin finds the page’s edges, lets you drag the corners to adjust, straightens it and cleans it up (Colour, Clean or Black & white; Clean evens out shadows and whitens the paper). Scan as many pages as you like, then make a new PDF or add them to the open document. Photos never leave your device.",
+    ],
+  },
+  {
     version: "2.33.0",
     date: "2026-11-20",
     notes: [
@@ -512,6 +519,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.33.0";
+const VERSION = "2.34.0";
 
 export { CHANGELOG, VERSION };

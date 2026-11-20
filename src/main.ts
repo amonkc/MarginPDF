@@ -31,6 +31,7 @@ import { headerFooterDialog } from "./ui/headerfooter";
 import { ICONS } from "./ui/icons";
 import { decodeImage, encodeImage, isImageFile, pickImageFile, encodePixels } from "./ui/images";
 import { askImagePages, imagesToDoc, pdfNameFor, IMAGE_ACCEPT } from "./ui/imagepdf";
+import { scanDocument } from "./ui/scan";
 import { TOOL_INFO, Interact } from "./ui/interact";
 import { Links } from "./ui/links";
 import {
@@ -1634,6 +1635,7 @@ async function main(): Promise<void> {
       rect.right - 240,
       rect.bottom + 6,
       [
+        { label: "Scan with camera…", run: () => void scanPages() },
         { label: "Print…", shortcut: "Ctrl+P", run: clickById("btn-print") },
         { label: "Export pages as images…", run: openExportImages },
         {
@@ -2098,6 +2100,32 @@ async function main(): Promise<void> {
     const images = files.filter(isImageFile);
     if (images.length) return openImages(images);
     toast(`${files[0].name} isn’t a PDF or an image Margin can open`, "err", 5e3);
+  }
+  /**
+   * Scan with camera: the scanner (ui/scan.ts), then its pages as a new PDF or added after the current page.
+   * Scanned pages keep their own shape (long side as A4's), without margins.
+   */
+  async function scanPages(): Promise<void> {
+    if (interact.editor) interact.commitEditor();
+    const scanned = await scanDocument(!app.limits.locked);
+    if (!scanned) return;
+    const options = { size: "image" as const, margin: 0 };
+    if (scanned.target === "insert") {
+      const doc = await imagesAsDoc(scanned.files, options);
+      if (doc) await insertDocs([{ name: "Scan", doc }], app.currentPage + 1, "Insert scanned pages", scanned.files.length === 1 ? "the scan" : scanned.files.length + " scanned pages");
+      return;
+    }
+    if (app.dirty && !(await confirmDiscard())) return;
+    const doc = await imagesAsDoc(scanned.files, options);
+    if (!doc) return;
+    const bytes = doc.save();
+    doc.close();
+    const now = new Date(), two = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())} ${two(now.getHours())}.${two(now.getMinutes())}`;
+    await openSource(bytes, `Scan ${stamp}.pdf`);
+    app.dirty = true;
+    refreshTopBar();
+    session.schedule();
   }
   /** Makes a new, unsaved PDF from images (asking for page size and margins). */
   async function openImages(images: File[]): Promise<void> {

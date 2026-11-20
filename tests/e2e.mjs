@@ -412,5 +412,33 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// U. scan with camera: a photo of a tilted page is found, straightened and cleaned, then becomes a new PDF
+{
+  const c = await b.newContext({ ...devices['Pixel 7'] }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('scan: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const photo = await pg.evaluate(async () => {
+    const cv = new OffscreenCanvas(1600, 1200), x = cv.getContext('2d');
+    x.fillStyle = '#3b332c'; x.fillRect(0, 0, 1600, 1200);
+    x.save(); x.translate(800, 600); x.rotate(0.12); const g = x.createLinearGradient(-450, 0, 450, 0); g.addColorStop(0, '#f2efe8'); g.addColorStop(1, '#a9a69f');
+    x.fillStyle = g; x.fillRect(-420, -540, 840, 1080); x.fillStyle = '#222'; x.font = '30px serif';
+    for (let i = 0; i < 14; i++) x.fillText('Line ' + (i + 1) + ' of the scanned document text', -360, -330 + i * 56); x.restore();
+    return Array.from(new Uint8Array(await (await cv.convertToBlob({ type: 'image/jpeg', quality: 0.9 })).arrayBuffer()));
+  });
+  await pg.locator('#btn-more').tap(); await pg.locator('.ctxmenu .ctx-item', { hasText: 'Scan with camera' }).tap(); await pg.waitForSelector('.scan');
+  const finishHidden = await pg.locator('#scan-finish').isHidden();
+  const [chooser] = await Promise.all([pg.waitForEvent('filechooser'), pg.locator('#scan-choose').tap()]);
+  await chooser.setFiles({ name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(photo) }); await pg.waitForSelector('.scan-edit:not([hidden])'); await pg.waitForTimeout(300);
+  // the corners found, in photo pixels, against the page's true corners (rotated 0.12 rad about the centre)
+  const found = await pg.evaluate(() => [...document.querySelectorAll('.scan-handle')].map((el) => { const c = document.querySelector('.scan-photo'), k = 1600 / c.getBoundingClientRect().width; return [parseFloat(el.style.left) * k, parseFloat(el.style.top) * k]; }));
+  const truth = [[-420, -540], [420, -540], [420, 540], [-420, 540]].map(([x, y]) => [800 + x * Math.cos(0.12) - y * Math.sin(0.12), 600 + x * Math.sin(0.12) + y * Math.cos(0.12)]);
+  const error = Math.max(...found.map((p, i) => Math.hypot(p[0] - truth[i][0], p[1] - truth[i][1])));
+  await pg.locator('#scan-keep').tap(); await pg.waitForSelector('.scan-thumb', { timeout: 20000 });
+  await pg.locator('#scan-create').tap(); await pg.waitForTimeout(1500);
+  const result = await pg.evaluate(() => { const { app } = window.__margin, s = app.doc.pageSize(0); return [/^Scan \d{4}-\d\d-\d\d \d\d\.\d\d\.pdf$/.test(app.fileName), app.dirty, app.doc.pageCount, Math.round(s.h), Math.abs(s.w / s.h - 840 / 1080) < 0.03]; });
+  log('scan', [finishHidden, error < 30, ...result]);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();
