@@ -2779,3 +2779,137 @@ input.sw.custom::-moz-color-swatch { border: 0; opacity: 0; }
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 2px 12px;
 }
+
+/* Compare (ui/compare.ts) */
+.cmp .scan-head {
+  flex-wrap: wrap;
+}
+.cmp-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px 0;
+}
+.cmp-label {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.cmp-label.del {
+  background: #de2d2d26;
+  color: #ff9c9c;
+}
+.cmp-label.ins {
+  background: #16a04626;
+  color: #8be0a8;
+}
+.cmp-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.cmp-summary {
+  margin: 8px 16px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.cmp-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+.cmp-side {
+  flex: 0 0 260px;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  padding-right: 8px;
+}
+.cmp.narrow .cmp-side {
+  display: none;
+}
+.cmp-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cmp-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  font: 12.5px/1.4 var(--f-ui);
+  cursor: pointer;
+}
+.cmp-item:hover,
+.cmp-item.on {
+  background: var(--chrome-2);
+}
+.cmp-where {
+  color: var(--ink-faint);
+  font: 11px var(--f-mono);
+}
+.cmp-item del {
+  color: #ff9c9c;
+}
+.cmp-item ins {
+  color: #8be0a8;
+  text-decoration: none;
+}
+.cmp-col {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 4px;
+}
+.cmp-col[hidden] {
+  display: none;
+}
+.cmp-page {
+  position: relative;
+  flex: none;
+  background: #fff;
+  box-shadow: var(--paper-shadow);
+}
+.cmp-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.cmp-num {
+  position: absolute;
+  right: -2px;
+  bottom: -18px;
+  color: var(--ink-faint);
+  font: 11px var(--f-mono);
+}
+.cmp-mark {
+  position: absolute;
+  border-radius: 2px;
+  mix-blend-mode: multiply;
+}
+.cmp-mark.del {
+  background: #ff5a5a66;
+}
+.cmp-mark.ins {
+  background: #38d16a66;
+}
+.cmp-mark.on {
+  outline: 2px solid var(--accent);
+}

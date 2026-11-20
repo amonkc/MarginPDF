@@ -1040,6 +1040,37 @@ class Doc {
   charCount(index: number): number {
     return this.withPage(index, (_page, textPage) => Math.max(0, this.P.FPDFText_CountChars(textPage)), { text: true });
   }
+  /**
+   * The page's text as words and punctuation, with their boxes, for comparing documents. Words are found with
+   * the browser's word segmenter, so Thai and Chinese (written without spaces) split into words too.
+   */
+  pageTokens(index: number): { t: string; rects: Rect[] }[] {
+    const P = this.P, lib = this.lib;
+    return this.withPage(index, (_page, textPage) => {
+      const count = P.FPDFText_CountChars(textPage);
+      if (count <= 0) return [];
+      const text: string = lib.tmp((alloc) => {
+        const buf = alloc((count + 1) * 2);
+        P.FPDFText_GetText(textPage, 0, count, buf);
+        return lib.M.UTF16ToString(buf);
+      }), out: { t: string; rects: Rect[] }[] = [];
+      const segments = typeof Intl !== "undefined" && Intl.Segmenter ? [...new Intl.Segmenter(undefined, { granularity: "word" }).segment(text)].map((s) => ({ t: s.segment, i: s.index })) : [...text.matchAll(/\S+/g)].map((m) => ({ t: m[0], i: m.index! }));
+      lib.tmp((alloc) => {
+        const buf = alloc(32);
+        for (const { t, i } of segments) {
+          if (!t.trim()) continue;
+          const rects: Rect[] = [], n = P.FPDFText_CountRects(textPage, i, t.length);
+          for (let k = 0; k < n; k++) {
+            P.FPDFText_GetRect(textPage, k, buf, buf + 8, buf + 16, buf + 24);
+            const [l, top, r, b] = lib.readDoubles(buf, 4);
+            rects.push({ l, t: top, r, b });
+          }
+          out.push({ t: t.normalize("NFC"), rects });
+        }
+      });
+      return out;
+    }, { text: true });
+  }
   /** Words on a page (Latin letters, with apostrophes) accepted by `accept`, for spell checking. */
   pageWords(index: number, accept: (word: string) => boolean): WordHit[] {
     const P = this.P, lib = this.lib;

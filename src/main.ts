@@ -33,6 +33,7 @@ import { decodeImage, encodeImage, isImageFile, pickImageFile, encodePixels } fr
 import { askImagePages, imagesToDoc, pdfNameFor, IMAGE_ACCEPT } from "./ui/imagepdf";
 import { scanDocument } from "./ui/scan";
 import { recogniseText } from "./ui/ocr";
+import { compareDocs } from "./ui/compare";
 import { TOOL_INFO, Interact } from "./ui/interact";
 import { Links } from "./ui/links";
 import {
@@ -1504,6 +1505,27 @@ async function main(): Promise<void> {
     hidden: true,
     id: "file-replace",
   });
+  // Compare: the picked file is the earlier version, the open document the later one (Swap in the view).
+  const compareFileInput = h("input", { type: "file", accept: "application/pdf,.pdf", hidden: true, id: "file-compare" });
+  compareFileInput.addEventListener("change", async () => {
+    const file = compareFileInput.files?.[0];
+    compareFileInput.value = "";
+    if (!file) return;
+    if (interact.editor) interact.commitEditor();
+    let other: Doc | null = null;
+    try {
+      other = await loadPdfFile(file, "compare with");
+    } catch (err) {
+      toast((err as Error).message, "err", 5e3);
+    }
+    if (!other) return;
+    try {
+      await compareDocs({ doc: other, name: file.name }, { doc: app.doc, name: app.fileName });
+    } finally {
+      other.close();
+    }
+  });
+  document.body.append(compareFileInput);
   replaceFileInput.addEventListener("change", () => {
     const file = replaceFileInput.files?.[0];
     replaceFileInput.value = "";
@@ -1638,6 +1660,7 @@ async function main(): Promise<void> {
       [
         { label: "Scan with camera…", run: () => void scanPages() },
         { label: "Recognise text (OCR)…", disabled: app.limits.locked, run: () => void runOcr() },
+        { label: "Compare with another PDF…", run: () => compareFileInput.click() },
         { label: "Print…", shortcut: "Ctrl+P", run: clickById("btn-print") },
         { label: "Export pages as images…", run: openExportImages },
         {

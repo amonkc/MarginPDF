@@ -465,5 +465,33 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// W. compare with another PDF: the original welcome document against an edited copy (a line removed, a sentence added)
+{
+  const c = await b.newContext({ viewport: { width: 1400, height: 900 } }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('compare: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const before = await pg.evaluate(() => Array.from(window.__margin.app.exportBytes()));
+  await pg.evaluate(async () => {
+    const { app, writeRichText } = window.__margin;
+    await app.mutate('test edits', { pages: [0] }, async () => {
+      await writeRichText(app.doc, 0, { v: 1, paras: [[{ t: 'This sentence was added for the comparison.' }]], font: 'helv', size: 12, color: '171a21', align: 'left', lh: 1.2, bm: [1, 0, 0, 1, 72, 40] });
+      const r = app.doc.search('Highlights, notes')[0].rects[0], P = app.doc.P, lib = app.doc.lib;
+      app.doc.withPage(0, (page) => { for (let i = P.FPDFPage_CountObjects(page) - 1; i >= 0; i--) { const o = P.FPDFPage_GetObject(page, i); if (P.FPDFPageObj_GetType(o) !== 1) continue; const buf = lib.alloc(16); P.FPDFPageObj_GetBounds(o, buf, buf + 4, buf + 8, buf + 12); const [l, bo, rr, t] = [0, 1, 2, 3].map((k) => lib.M.getValue(buf + k * 4, 'float')); lib.free(buf); if (bo <= r.t && t >= r.b && l <= r.r && rr >= r.l) { P.FPDFPage_RemoveObject(page, o); P.FPDFPageObj_Destroy(o); } } P.FPDFPage_GenerateContent(page); });
+    });
+  });
+  await pg.locator('#file-compare').setInputFiles({ name: 'Welcome (old).pdf', mimeType: 'application/pdf', buffer: Buffer.from(before) });
+  await pg.waitForSelector('.cmp'); await pg.waitForTimeout(1200);
+  await pg.keyboard.press('ArrowDown'); await pg.waitForTimeout(600);
+  const text = [await pg.locator('.cmp-summary').innerText(), (await pg.locator('.cmp-item').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ')).join(' | '), await pg.locator('.cmp-mark.del').count(), await pg.locator('.cmp-mark.ins').count()];
+  await pg.locator('.cmp [data-mode=overlay]').click(); await pg.waitForTimeout(1200);
+  // the overlay of page 1 has red (removed) and green (added) pixels
+  const colours = await pg.evaluate(() => { const cv = document.querySelector('.cmp-overlay canvas'), d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; let red = 0, green = 0; for (let i = 0; i < d.length; i += 4) { if (d[i] > 200 && d[i + 1] < 80) red++; if (d[i + 1] > 140 && d[i] < 60) green++; } return [red > 50, green > 50]; });
+  await pg.locator('.cmp [data-mode=text]').click(); await pg.locator('.cmp .btn', { hasText: 'Swap' }).click(); await pg.waitForTimeout(500);
+  const swapped = await pg.locator('.cmp-summary').innerText();
+  await pg.locator('.cmp .iconbtn[aria-label=Close]').click();
+  log('compare', [...text, ...colours, swapped, await pg.locator('.cmp').count()]);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

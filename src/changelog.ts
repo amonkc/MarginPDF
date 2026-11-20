@@ -10,6 +10,13 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.36.0",
+    date: "2026-11-20",
+    notes: [
+      "Compare with another PDF (More menu): see what changed between two versions. Text changes shows them side by side, removed words in red on the earlier version and added words in green on the later one, with a list to step through (arrow keys work). Overlay lays the pages over each other and colours every difference, so changes to pictures and drawings show too. Thai and Chinese text is compared word by word.",
+    ],
+  },
+  {
     version: "2.35.0",
     date: "2026-11-20",
     notes: [
@@ -527,6 +534,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.35.0";
+const VERSION = "2.36.0";
 
 export { CHANGELOG, VERSION };
