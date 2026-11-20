@@ -20,7 +20,7 @@ repository connected through Workers Builds, every push to `develop` builds and 
 - `npm run deploy` builds and deploys from a machine logged in with `wrangler login`.
 
 `scripts/web.mjs` gives every engine, font and dictionary file a content-hashed name, cached for a year, so a
-visitor downloads Margin once (about 2.5 MB, mostly the PDF engine) and repeat visits transfer only `index.html`.
+visitor downloads Margin once (about 2.65 MB, mostly the PDF engine) and repeat visits transfer only `index.html`.
 PDF fonts (about 60 KB each) and the spelling dictionary (about 190 KB) download only when first used. Interface
 fonts are self-hosted, so the site makes no requests to other domains. Third-party licences are served at
 `/licenses/THIRD_PARTY_NOTICES.txt` (source: `public/licenses/`; also shown in the app under What’s new → Open-source licences).
@@ -46,6 +46,7 @@ requests and transfer sizes.
 - `src/vendor/harfbuzz/` — harfbuzzjs 1.6.3 (MIT) with an explicit init.
 - `public/` — wasm engines, fonts, spelling dictionary, welcome document.
 - `scripts/make-fonts.py` — builds the Chinese, Japanese, Korean, Indic and Southeast Asian fonts from Noto sources.
+- `scripts/make-welcome.mjs` — builds the welcome document (`public/welcome.pdf`) from `scripts/welcome/base.pdf`.
 - `site/` — favicon and home-screen icons, served from the site root.
 - `scripts/web.mjs`, `scripts/serve.mjs`, `wrangler.jsonc` — the site build step, a local stand-in for Cloudflare, deployment.
 - `public/licenses/` — third-party notices, shipped with both builds and shown in the app.

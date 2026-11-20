@@ -11,6 +11,8 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
   are cached per `Doc.generation` (never by `doc.h`: a reopened document can reuse the address).
 - `scripts/make-fonts.py` — builds the Noto CJK (everyday character sets) and Indic/Southeast Asian fonts in
   `public/fonts/` from the Google Fonts sources.
+- `scripts/make-welcome.mjs` — builds `public/welcome.pdf` from `scripts/welcome/base.pdf` plus the "More languages"
+  section on page 1, written by the built app (run against `serve:web`). Edit the script, not the PDF.
 - `src/ui/` — viewer, tools (`interact.ts`, `arrange.ts`, `crop.ts`, `textbox.ts`, `links.ts`, `forms.ts`),
   panels, dialogs, context menu, clipboard.
 - `src/app.ts` — document state, settings, undo history. `src/main.ts` — boot, ribbon, menus, shortcuts.
@@ -32,7 +34,7 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
   `node tests/e2e.mjs http://localhost:8788/ > new.log`. It prints a deterministic log; diff it with
   `tests/e2e.expected.log` (only the version line, and anything the change intends, may differ), then commit the new
   log as the expected one. It must end with `errors []`. Also `node tests/web.mjs http://localhost:8788/` (downloads,
-  licences, no third-party requests, first-visit size ≈ 2.5 MB, repeat visit a few KB).
+  licences, no third-party requests, first-visit size ≈ 2.65 MB, repeat visit a few KB).
 - Pushing to `develop` deploys the website (Cloudflare Workers Builds). The old claude.ai artifact page and the
   single-file build were retired in v2.25.3 (owner's decision); don't publish artifacts or copy the source elsewhere.
 - New third-party code or fonts: add their licence to `public/licenses/THIRD_PARTY_NOTICES.txt` (shown in the app

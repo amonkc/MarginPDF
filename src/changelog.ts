@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.32.1",
+    date: "2026-11-20",
+    notes: ["The welcome document lists the languages you can write in, each with a greeting set in its own font. Click one with Edit text to try it."],
+  },
+  {
     version: "2.32.0",
     date: "2026-11-19",
     notes: [
@@ -499,6 +504,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.32.0";
+const VERSION = "2.32.1";
 
 export { CHANGELOG, VERSION };

@@ -1,4 +1,4 @@
-version v2.32.0
+version v2.32.1
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -27,7 +27,7 @@ textbox ["Box text here"]
 search added 1
 edit text [1,0]
 arrange ribbon Align left edges,Align centres,Align right edges,Align tops,Align middles,Align bottoms,Distribute across (3 or more),Distribute down (3 or more),Match width of the last clicked,Match height of the last clicked,Match size of the last clicked,Bring to front (Ctrl+Shift+]),Bring forward (Ctrl+]),Send backward (Ctrl+[),Send to back (Ctrl+Shift+[)
-arrange menu 33 OBJECTS | Align |  | Distribute across | Distribute down | Match | Bring to front | Bring forward | Send backward | Send to back | Cut | Copy | Paste | Duplicate 33 | Delete 33 objects
+arrange menu 62 OBJECTS | Align |  | Distribute across | Distribute down | Match | Bring to front | Bring forward | Send backward | Send to back | Cut | Copy | Paste | Duplicate 62 | Delete 62 objects
 page op Rotate right [3,[792,612]]
 page op Insert blank page after [4,[792,612]]
 undo pages [3,[612,792]]

@@ -10,6 +10,7 @@ import { loadAsset } from "./engine/assets";
 import { Growable } from "./engine/growable";
 import { ENGINE_FULL, ANNOT, Pdfium, ANNOT_NAMES, PdfError, isEngineAbort } from "./engine/pdfium";
 import { loadFont, parseStyleCode, styleCode, initShaper, FONTS, FONT_GROUPS, fontByKey, onBigFontLoading, splitByCoverage } from "./engine/text";
+import { writeRichText } from "./engine/richtext";
 import { Arrange } from "./ui/arrange";
 import { Bookmarks } from "./ui/bookmarks";
 import { compressDialog } from "./ui/compress";
@@ -138,7 +139,7 @@ async function main(): Promise<void> {
   const thumbs = new Thumbs($("#thumbs"), app);
   const commentsPanel = new CommentsPanel($("#comments"), app);
   // debugging/test hook: the main objects, reachable from the console and the e2e tests
-  (window as unknown as { __margin: unknown }).__margin = { app, viewer, ix: interact, arrange, Growable: Growable, splitByCoverage };
+  (window as unknown as { __margin: unknown }).__margin = { app, viewer, ix: interact, arrange, Growable: Growable, splitByCoverage, writeRichText };
   const bookmarks = new Bookmarks(app, viewer);
   const pagesPane = h(
     "div",
