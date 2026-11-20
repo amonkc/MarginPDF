@@ -518,5 +518,23 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// Y. save all images: each picture once (JPEG kept as JPEG, others as PNG), in a ZIP
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('images zip: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(300);
+  const make = (type, colour) => pg.evaluate(async ([type, colour]) => { const cv = new OffscreenCanvas(500, 400), x = cv.getContext('2d'); x.fillStyle = colour; x.fillRect(0, 0, 500, 400); x.fillStyle = '#fff'; x.fillRect(100, 100, 300, 200); return Array.from(new Uint8Array(await (await cv.convertToBlob({ type, quality: 0.9 })).arrayBuffer())); }, [type, colour]);
+  const jpg = Buffer.from(await make('image/jpeg', '#c0392b')), png = Buffer.from(await make('image/png', '#2471a3'));
+  await pg.locator('#file-open').setInputFiles([{ name: 'a.jpg', mimeType: 'image/jpeg', buffer: jpg }, { name: 'b.png', mimeType: 'image/png', buffer: png }, { name: 'c.jpg', mimeType: 'image/jpeg', buffer: jpg }]);
+  await pg.waitForSelector('.modal'); await pg.locator('.modal .btn.primary').click(); await pg.waitForTimeout(1500);
+  await pg.locator('#btn-more').click();
+  const [download] = await Promise.all([pg.waitForEvent('download'), pg.locator('.ctxmenu .ctx-item', { hasText: 'Save all images' }).click()]);
+  const zip = await (await download.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks));
+  // names from the ZIP's central directory
+  const names = []; for (let i = 0; i + 46 < zip.length; i++) if (zip.readUInt32LE(i) === 0x02014b50) { const n = zip.readUInt16LE(i + 28); names.push(zip.subarray(i + 46, i + 46 + n).toString()); }
+  log('save all images', [download.suggestedFilename(), names.join(', ')]);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

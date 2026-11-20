@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.38.0",
+    date: "2026-11-20",
+    notes: ["Save all images (More menu): every picture in the PDF in one ZIP, photos kept in their original JPEG quality, others as PNG. Repeated pictures (a logo on every page) are saved once."],
+  },
+  {
     version: "2.37.0",
     date: "2026-11-20",
     notes: ["Open several files at once (PDFs and images, from Open or by dropping them on the page) and Margin combines them into one new PDF. Put them in order first, or leave some out."],
@@ -539,6 +544,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.37.0";
+const VERSION = "2.38.0";
 
 export { CHANGELOG, VERSION };

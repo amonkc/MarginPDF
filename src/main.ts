@@ -32,6 +32,7 @@ import { ICONS } from "./ui/icons";
 import { decodeImage, encodeImage, isImageFile, pickImageFile, encodePixels } from "./ui/images";
 import { askImagePages, imagesToDoc, pdfNameFor, IMAGE_ACCEPT } from "./ui/imagepdf";
 import { scanDocument } from "./ui/scan";
+import { makeZip } from "./util/zip";
 import { recogniseText } from "./ui/ocr";
 import { compareDocs } from "./ui/compare";
 import { TOOL_INFO, Interact } from "./ui/interact";
@@ -1663,6 +1664,7 @@ async function main(): Promise<void> {
         { label: "Compare with another PDF…", run: () => compareFileInput.click() },
         { label: "Print…", shortcut: "Ctrl+P", run: clickById("btn-print") },
         { label: "Export pages as images…", run: openExportImages },
+        { label: "Save all images…", run: () => void saveAllImages() },
         {
           label: "Compress…",
           run: () => {
@@ -3347,6 +3349,46 @@ async function main(): Promise<void> {
     } catch (err) {
       toast((err as Error).message, "err");
     }
+  }
+  /**
+   * Every picture in the document, as its original JPEG where it is one, else PNG; tiny images (under 8 px) and
+   * repeats (the same picture on several pages) left out. One file, or a ZIP for several.
+   */
+  async function saveAllImages(): Promise<void> {
+    const { locked, perms } = app.limits;
+    if (locked && !(perms & 16)) return void toast("This PDF’s permissions don’t allow copying its content", "warn");
+    const base = app.fileName.replace(/\.pdf$/i, ""), files: { name: string; data: Uint8Array }[] = [], seen = new Set<string>();
+    const note = app.doc.pageCount > 20 ? toast("Collecting images…", "ok", 120e3) : null;
+    try {
+      for (let page = 0; page < app.doc.pageCount; page++) {
+        note?.set(`Collecting images… page ${page + 1} of ${app.doc.pageCount}`);
+        let k = 0;
+        for (const objIndex of app.doc.imageObjects(page)) {
+          let data: Uint8Array | null = app.doc.imageJpeg(page, objIndex), ext = "jpg";
+          if (!data) {
+            const pixels = app.doc.imagePixels(page, objIndex);
+            if (!pixels || pixels.w < 8 || pixels.h < 8) continue;
+            const canvas = new OffscreenCanvas(pixels.w, pixels.h);
+            canvas.getContext("2d")!.putImageData(new ImageData(pixels.rgba, pixels.w, pixels.h), 0, 0);
+            data = new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
+            ext = "png";
+          }
+          const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", data)), (x) => x.toString(16).padStart(2, "0")).join("");
+          if (seen.has(digest)) continue;
+          seen.add(digest);
+          files.push({ name: `${base}-p${page + 1}-${++k}.${ext}`, data });
+        }
+        if (page % 10 === 9) await new Promise((r) => setTimeout(r)); // keep the page responsive
+      }
+    } catch (err) {
+      note?.close();
+      return void toast((err as Error).message, "err");
+    }
+    note?.close();
+    if (!files.length) return void toast("This PDF has no pictures to save.", "ok", 4e3);
+    if (files.length === 1) return void (await saveFile(files[0].data, files[0].name, /png$/.test(files[0].name) ? "image/png" : "image/jpeg"));
+    await saveFile(makeZip(files), `${base}-images.zip`, "application/zip");
+    toast(`Saved ${files.length} images in ${base}-images.zip`, "ok", 4e3);
   }
   /** Right-click menu for the Move & resize selection (one or several objects). */
   async function arrangeMenu(clientX: number, clientY: number, anchor?: HTMLElement): Promise<void> {

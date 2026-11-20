@@ -2095,6 +2095,15 @@ class Doc {
     });
   }
   /** The raw JPEG bytes of an image object, if its data is a JPEG (starts FF D8); else null. */
+  /** Indexes of a page's image objects (top level). */
+  imageObjects(index: number): number[] {
+    const P = this.P;
+    return this.withPage(index, (page) => {
+      const out: number[] = [];
+      for (let i = 0, n = P.FPDFPage_CountObjects(page); i < n; i++) if (P.FPDFPageObj_GetType(P.FPDFPage_GetObject(page, i)) === 3) out.push(i);
+      return out;
+    });
+  }
   imageJpeg(index: number, objIndex: number): Uint8Array | null {
     const P = this.P, lib = this.lib;
     return this.withPage(index, (page) => {
