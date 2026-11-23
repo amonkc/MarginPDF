@@ -1573,7 +1573,7 @@ async function main(): Promise<void> {
             h("ul", {}, ...release.notes.map((note) => h("li", { text: note }))),
           ),
         ),
-        h("p", { class: "hint" }, h("button", { class: "clink", type: "button", text: "Open-source licences", onclick: () => showLicences() }), " · ", h("a", { class: "clink", href: "/about/", target: "_blank", rel: "noopener", text: "About Margin" })),
+        h("p", { class: "hint" }, h("button", { class: "clink", type: "button", text: "Open-source licences", onclick: () => showLicences() }), " · ", h("a", { class: "clink", href: "/about/", target: "_blank", rel: "noopener", text: "About Margin" }), " · ", h("a", { class: "clink gh-link", href: "https://github.com/amonkc/MarginPDF", target: "_blank", rel: "noopener", }, icon("github"), "Source on GitHub")),
       ),
       actions: [{ id: "ok", label: "Close", primary: true }],
     });

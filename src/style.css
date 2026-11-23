@@ -1283,6 +1283,22 @@ select.fld option {
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
+.gh-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.gh-link .ic {
+  width: 14px;
+  height: 14px;
+}
+.statusbar .gh {
+  margin: 0 -8px 0 -10px;
+  color: var(--ink-faint);
+}
+.statusbar .gh:hover {
+  color: var(--ink);
+}
 .version:hover {
   color: var(--ink);
   background: var(--chrome-2);
