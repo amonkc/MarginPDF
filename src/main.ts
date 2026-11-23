@@ -1573,7 +1573,7 @@ async function main(): Promise<void> {
             h("ul", {}, ...release.notes.map((note) => h("li", { text: note }))),
           ),
         ),
-        h("p", { class: "hint" }, h("button", { class: "clink", type: "button", text: "Open-source licences", onclick: () => showLicences() })),
+        h("p", { class: "hint" }, h("button", { class: "clink", type: "button", text: "Open-source licences", onclick: () => showLicences() }), " · ", h("a", { class: "clink", href: "/about/", target: "_blank", rel: "noopener", text: "About Margin" })),
       ),
       actions: [{ id: "ok", label: "Close", primary: true }],
     });

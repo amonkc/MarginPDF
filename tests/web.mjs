@@ -55,6 +55,11 @@ const shown = await page.locator('pre.licences').textContent({ timeout: 10000 })
 console.log('licences in app:', shown.length > 50000 ? 'ok' : 'short', shown.slice(0, 39));
 const r = await page.request.get(origin + '/licenses/THIRD_PARTY_NOTICES.txt'); console.log('licences:', r.status(), (await r.text()).slice(0, 39));
 console.log('third-party requests:', [...foreign]);
+// search engines: description, canonical and social card on the app; robots.txt, sitemap and the about page served
+const meta = await page.evaluate(() => ['meta[name=description]', 'link[rel=canonical]', 'meta[property="og:image"]'].map((s) => { const e = document.querySelector(s); return e ? (e.content || e.href).length > 10 : false; }));
+const seo = [];
+for (const p of ['/robots.txt', '/sitemap.xml', '/about/', '/og.png']) { const res = await page.request.get(origin + p); seo.push(`${p} ${res.status()} ${(res.headers()['content-type'] || '').split(';')[0]}${res.headers()['x-robots-tag'] ? ' NOINDEX' : ''}`); }
+console.log('search engines:', meta.every(Boolean) ? 'meta ok' : 'meta missing ' + meta, '|', seo.join(', '));
 // site icons: linked from the page and served from the root
 const iconLinks = await page.evaluate(() => [...document.querySelectorAll('link[rel~=icon], link[rel=apple-touch-icon]')].map((l) => l.getAttribute('href')));
 const iconStatus = [];

@@ -5,7 +5,8 @@
 //    text content type for the spelling dictionary so Cloudflare compresses it;
 //  - copies the OCR engine and language data (from node_modules) into one content-hashed folder;
 //  - copies the third-party licence notices (public/licenses/) to web/licenses/ as well;
-//  - copies the site icons (site/: favicon, home-screen icons) to the site root, where browsers look for them.
+//  - copies site/ (favicon, home-screen icons, social card image, the about page) to the site root;
+//  - writes robots.txt and sitemap.xml for search engines, using the address in package.json "homepage".
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -44,12 +45,26 @@ const indexPath = path.join(out, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf8');
 // Site icons keep fixed names (browsers ask for /favicon.ico by themselves); a content hash in the links
 // makes browsers fetch a changed icon.
+// The site's address (package.json "homepage") goes into the canonical link, social cards, robots.txt and the sitemap.
+const site = JSON.parse(fs.readFileSync('package.json', 'utf8')).homepage.replace(/\/?$/, '/');
 const siteHash = crypto.createHash('sha256');
-for (const f of fs.readdirSync('site').sort()) {
-  const data = fs.readFileSync(path.join('site', f));
+for (const f of fs.readdirSync('site', { recursive: true }).map(String).sort()) {
+  const src = path.join('site', f);
+  if (fs.statSync(src).isDirectory()) continue;
+  let data = fs.readFileSync(src);
+  if (f.endsWith('.html')) data = Buffer.from(data.toString('utf8').replaceAll('__SITE__', site));
   siteHash.update(data);
+  fs.mkdirSync(path.dirname(path.join(out, f)), { recursive: true });
   fs.writeFileSync(path.join(out, f), data);
 }
+// Search engines: crawl everything; the sitemap lists the app and the about page, dated by the latest release.
+const released = /date:\s*"(\d{4}-\d{2}-\d{2})"/.exec(fs.readFileSync('src/changelog.ts', 'utf8'))[1];
+fs.writeFileSync(path.join(out, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: ${site}sitemap.xml\n`);
+fs.writeFileSync(path.join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${['', 'about/'].map((p) => `  <url><loc>${site}${p}</loc><lastmod>${released}</lastmod></url>`).join('\n')}
+</urlset>
+`);
 const v = siteHash.digest('hex').slice(0, 8);
 const icons = [
   `<link rel="icon" href="/favicon.ico?v=${v}" sizes="32x32">`,
@@ -58,7 +73,7 @@ const icons = [
   `<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=${v}">`,
 ].join('\n');
 const tag = `${icons}\n<script type="application/json" id="margin-assets">${JSON.stringify(map)}</script>`;
-html = html.replace('</head>', `${tag}\n</head>`);
+html = html.replace('</head>', `${tag}\n</head>`).replaceAll('__SITE__', site);
 fs.writeFileSync(indexPath, html);
 
 // Content-Security-Policy: everything from this site only; wasm needs 'wasm-unsafe-eval'; page images and saved
@@ -109,6 +124,14 @@ const headers = `/*
   Cache-Control: public, max-age=604800
 /apple-touch-icon.png
   Cache-Control: public, max-age=604800
+/og.png
+  Cache-Control: public, max-age=604800
+/about/*
+  Cache-Control: public, max-age=3600
+/robots.txt
+  Cache-Control: public, max-age=3600
+/sitemap.xml
+  Cache-Control: public, max-age=3600
 `;
 fs.writeFileSync(path.join(out, '_headers'), headers);
 

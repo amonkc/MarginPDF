@@ -32,8 +32,11 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
 - `src/changelog.ts` — `CHANGELOG` and `VERSION` (shown in the app).
 - `src/vendor/harfbuzz/` — harfbuzzjs 1.6.3 with one change (explicit init); see its README.
 - `public/` — pdfium.wasm, harfbuzz.wasm, fonts, spelling dictionary, welcome.pdf (content-hashed into `web/a/`).
-- `site/` — favicon and home-screen icons ("M." in Fraunces ExtraBold as outlines), copied to the site root and
-  linked by `scripts/web.mjs`.
+- `site/` — favicon and home-screen icons ("M." in Fraunces ExtraBold as outlines), `og.png` (link preview, made by
+  `scripts/make-og.mjs`) and the static About page `about/index.html`, copied to the site root by `scripts/web.mjs`.
+- Search engines: `index.html` has the description, canonical link, Open Graph tags and JSON-LD; `scripts/web.mjs`
+  writes `robots.txt` and `sitemap.xml`. The site address is `package.json` `homepage` (`__SITE__` in the HTML):
+  change it there if the domain changes.
 
 ## Build, test, release
 - `npm run build` (alias `build:web`, which Cloudflare runs) → `web/`: Vite build plus `scripts/web.mjs` (content-hashed

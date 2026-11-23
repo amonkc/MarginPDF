@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.42.0",
+    date: "2026-11-23",
+    notes: ["Margin can now be found through search engines: the site has a description, a sitemap and a preview image for shared links, and a new About page (linked here) explains what Margin does."],
+  },
+  {
     version: "2.41.0",
     date: "2026-11-20",
     notes: ["Save as Markdown or text (More menu): the PDF’s text in reading order, with lines rejoined into paragraphs (Thai, Chinese and Japanese without stray spaces, hyphenated words mended) and page numbers left out. Markdown also keeps headings, from larger or bold text, and bulleted and numbered lists. Scans need Recognise text first."],
@@ -559,6 +564,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.41.0";
+const VERSION = "2.42.0";
 
 export { CHANGELOG, VERSION };
