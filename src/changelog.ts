@@ -10,6 +10,11 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.44.0",
+    date: "2026-11-23",
+    notes: ["The More menu links to Margin’s source code on GitHub too, so it’s reachable on phones, where the status bar is hidden."],
+  },
+  {
     version: "2.43.0",
     date: "2026-11-23",
     notes: ["A GitHub link to Margin’s source code, next to the version number, in What’s new and on the About page."],
@@ -569,6 +574,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.43.0";
+const VERSION = "2.44.0";
 
 export { CHANGELOG, VERSION };

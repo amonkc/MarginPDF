@@ -29,6 +29,9 @@ import {
 import { Forms, FIELD_KINDS } from "./ui/forms";
 import { headerFooterDialog } from "./ui/headerfooter";
 import { ICONS } from "./ui/icons";
+
+/** Margin's source code (also linked from the status bar in index.html and the About page). */
+const REPO_URL = "https://github.com/amonkc/MarginPDF";
 import { decodeImage, encodeImage, isImageFile, pickImageFile, encodePixels } from "./ui/images";
 import { askImagePages, imagesToDoc, pdfNameFor, IMAGE_ACCEPT } from "./ui/imagepdf";
 import { scanDocument } from "./ui/scan";
@@ -1573,7 +1576,7 @@ async function main(): Promise<void> {
             h("ul", {}, ...release.notes.map((note) => h("li", { text: note }))),
           ),
         ),
-        h("p", { class: "hint" }, h("button", { class: "clink", type: "button", text: "Open-source licences", onclick: () => showLicences() }), " · ", h("a", { class: "clink", href: "/about/", target: "_blank", rel: "noopener", text: "About Margin" }), " · ", h("a", { class: "clink gh-link", href: "https://github.com/amonkc/MarginPDF", target: "_blank", rel: "noopener", }, icon("github"), "Source on GitHub")),
+        h("p", { class: "hint" }, h("button", { class: "clink", type: "button", text: "Open-source licences", onclick: () => showLicences() }), " · ", h("a", { class: "clink", href: "/about/", target: "_blank", rel: "noopener", text: "About Margin" }), " · ", h("a", { class: "clink gh-link", href: REPO_URL, target: "_blank", rel: "noopener", }, icon("github"), "Source on GitHub")),
       ),
       actions: [{ id: "ok", label: "Close", primary: true }],
     });
@@ -1700,6 +1703,8 @@ async function main(): Promise<void> {
         { label: "Insert pages from PDF or images…", run: () => insertFileInput.click() },
         { label: "Replace pages…", run: () => replaceFileInput.click() },
         { label: "Extract or split pages…", run: () => pageAction("extract") },
+        "sep",
+        { label: "Source code on GitHub", icon: "github", run: () => void window.open(REPO_URL, "_blank", "noopener") },
       ],
       $<HTMLElement>("#btn-more"),
     );
