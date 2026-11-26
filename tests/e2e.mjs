@@ -105,8 +105,8 @@ await page.keyboard.press('Control+a'); await page.keyboard.type('Heading was ed
 log('edit text', await M(() => [window.__margin.app.doc.search('Heading was edited').length, window.__margin.app.doc.search('Welcome to Margin').length]));
 await page.keyboard.press('v');
 
-// E. Move & resize: select all on page 1, nudge, menu
-await page.keyboard.press('a'); await page.waitForTimeout(300);
+// E. Select: select all objects on page 1, menu
+await page.keyboard.press('v'); await page.waitForTimeout(300);
 await page.mouse.click(g.x + 5, g.y + 5); await page.keyboard.press('Control+a'); await page.waitForTimeout(300);
 log('arrange ribbon', (await page.locator('#ribbon .iconbtn').evaluateAll((e) => e.map((x) => x.getAttribute('aria-label')))).join(','));
 p = await centerOf(rect);
@@ -183,12 +183,12 @@ await page.locator('.modal .btn.primary').click(); await page.waitForTimeout(500
 log('print empty range message', await page.locator('#toast').innerText());
 await page.keyboard.press('Escape'); await M(() => document.querySelector('.modal-host:not([hidden]) .modal-scrim')?.click()); await page.waitForTimeout(300);
 
-// K. Move & resize picks what's in front: an image placed over a line of text, then Alt-click for the text behind
+// K. Select picks what's in front: an image placed over added text, then Alt-click for the text behind
 const over = await M(async () => {
   const { app, viewer, arrange } = window.__margin; const pv = viewer.views[0];
-  const line = arrange.itemsOf(pv).find((it) => it.kind === 'line'); const b = line.bounds;
+  const text = arrange.allItems(pv).filter((it) => it.kind === 'block').sort((x, y) => y.bounds.t - x.bounds.t)[0]; const b = text.bounds;
   await app.mutate('img', { pages: [0] }, () => app.doc.addImage(0, [b.r - b.l + 40, 0, 0, b.t - b.b + 40, b.l - 20, b.b - 20], { rgba: new Uint8ClampedArray(4 * 4).fill(200), w: 2, h: 2 }));
-  app.setTool('arrange'); pv.ov.scrollIntoView({ block: 'start' }); await new Promise((r) => setTimeout(r, 400));
+  app.setTool('select'); pv.ov.scrollIntoView({ block: 'start' }); await new Promise((r) => setTimeout(r, 400));
   const bx = pv.tf.box(b), o = pv.ov.getBoundingClientRect(); return { x: o.x + bx.x + bx.w / 2, y: o.y + bx.y + bx.h / 2 };
 });
 const picked = () => M(() => window.__margin.arrange.selected().map((it) => it.label).join());
@@ -603,6 +603,38 @@ log('more button toggles its menu', toggles);
   const [mdName, md] = await save('md'), [txtName, txt] = await save('txt');
   const blocks = md.trim().split(/\n\n/);
   log('save as text', [mdName, blocks.filter((x) => x.startsWith('#')).join(' | '), blocks.length, blocks.some((x) => /^ภาษาไทย.*ฐานวรรณยุกต์/.test(x)), md.includes('Edit text Choose Edit text (E)'), txtName, /^#/m.test(txt), txt.trim().split(/\n\n/).length]);
+  await c.close();
+}
+
+// AC. one Select tool: objects select and move, page text double-clicks into Edit text, Edit text drags text, Form field drags fields
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 900 } }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('select tool: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(400);
+  const E = (f, a) => pg.evaluate(f, a);
+  const at = async (page, r) => { await E((i) => window.__margin.viewer.views[i].ov.scrollIntoView({ block: 'start' }), page); await pg.waitForTimeout(400); return E(([i, r]) => { const pv = window.__margin.viewer.views[i]; const bx = pv.tf.box(r); const o = pv.ov.getBoundingClientRect(); return { x: o.x + bx.x + bx.w / 2, y: o.y + bx.y + bx.h / 2 }; }, [page, r]); };
+  const chosen = () => E(() => window.__margin.arrange.selected().map((it) => it.label).join());
+  const drag = async (q, dx, dy) => { await pg.mouse.move(q.x, q.y); await pg.mouse.down(); await pg.mouse.move(q.x + dx, q.y + dy, { steps: 6 }); await pg.mouse.up(); await pg.waitForTimeout(700); };
+  const out = [await E(() => [...document.querySelectorAll('#rail .tool')].slice(0, 3).map((t) => t.dataset.tool).join())];
+  await E(async () => { const { app } = window.__margin; await app.mutate('img', { pages: [0] }, () => app.doc.addImage(0, [60, 0, 0, 40, 480, 690], { rgba: new Uint8ClampedArray(16).fill(90), w: 2, h: 2 })); });
+  let q = await at(0, { l: 480, r: 540, b: 690, t: 730 }); await pg.mouse.click(q.x, q.y); await pg.waitForTimeout(300); out.push(await chosen());
+  await drag(q, 30, 0); out.push(await E(() => { const it = window.__margin.arrange.selected()[0]; return Math.round(it.bounds.l); }));
+  const hl = await E(() => window.__margin.app.doc.annots(0).find((a) => a.subtype === 9).rect);
+  q = await at(0, hl); await pg.mouse.click(q.x, q.y); await pg.waitForTimeout(600); out.push(await chosen());
+  await drag(q, 40, 30); out.push(await E((l) => Math.round(window.__margin.app.doc.annots(0).find((a) => a.subtype === 9).rect.l - l), hl.l));
+  const words = await E(() => window.__margin.app.doc.search('Draw and shapes')[0].rects[0]);
+  q = await at(0, words); await pg.mouse.click(q.x, q.y); await pg.waitForTimeout(600); out.push(await chosen() || 'nothing');
+  await pg.mouse.dblclick(q.x, q.y); await pg.waitForTimeout(500); out.push(await E(() => [window.__margin.app.tool, !!document.querySelector('.editor')].join()));
+  await pg.keyboard.press('Escape'); await pg.waitForTimeout(400);
+  const title = await E(() => window.__margin.app.doc.search('A form to fill')[0].rects[0]);
+  q = await at(1, title); await drag(q, 50, 30);
+  out.push(await E((l) => [Math.round(window.__margin.app.doc.search('A form to fill')[0].rects[0].l - l) > 30, !!document.querySelector('.editor')].join(), title.l));
+  await pg.keyboard.press('f'); await pg.waitForTimeout(300);
+  const field = await E(() => { const { viewer } = window.__margin; return viewer.fieldsOf(viewer.views[1]).find((f) => f.name === 'email').rect; });
+  q = await at(1, field); await drag(q, 40, 20);
+  out.push(await E((l) => { const { viewer } = window.__margin; return [Math.round(viewer.fieldsOf(viewer.views[1]).find((f) => f.name === 'email').rect.l - l) > 30, !!document.querySelector('.modal')].join(); }, field.l));
+  await pg.keyboard.press('v'); await pg.waitForTimeout(300); out.push(await E(() => document.querySelectorAll('.page[data-index="1"] .fld').length));
+  log('select tool', out);
   await c.close();
 }
 

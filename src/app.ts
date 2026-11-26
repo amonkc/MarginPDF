@@ -102,7 +102,18 @@ class App {
   saveSettings(): void {
     savePref("settings", this.settings);
   }
-  selectedAnnot: AnnotRef | null = null;
+  /** Where the selected annotation lives; main points this at the Select tool's selection. */
+  annotSelection: { get(): AnnotRef | null; set(ref: AnnotRef | null): void } = (() => {
+    let ref: AnnotRef | null = null;
+    return { get: () => ref, set: (next: AnnotRef | null) => void (ref = next) };
+  })();
+  /** The single selected annotation (Select tool), or null. */
+  get selectedAnnot(): AnnotRef | null {
+    return this.annotSelection.get();
+  }
+  set selectedAnnot(ref: AnnotRef | null) {
+    this.annotSelection.set(ref);
+  }
   selectedPages: Set<number> = new Set();
   currentPage = 0;
   constructor(lib: Pdfium) {

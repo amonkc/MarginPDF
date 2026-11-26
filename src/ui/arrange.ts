@@ -12,7 +12,8 @@ import type { App } from '../app';
 import type { PageView, Viewer } from './viewer';
 
 /**
- * One thing the Move & resize tool can select on a page.
+ * One thing that can be selected on a page (Select tool; form fields and links in their own tools; text lines
+ * in Edit text).
  * - `annot`: an annotation, form field or link (`annot` is its index)
  * - `image`: an image or vector graphic page object (`objs` holds its index)
  * - `block`: the page objects of a Margin text block, header/footer, watermark or background (`block` is its id)
@@ -38,6 +39,8 @@ export type ArrangeItem = {
   wrap?: RichText;
   /** paint order on the page, higher is in front (annotations above all page content); see `stackOf` */
   z: number;
+  /** can be selected but not moved or resized (text markup and redaction marks stay on their text) */
+  fixed?: boolean;
 };
 
 /** The primary selection: page index and item key. */
@@ -56,19 +59,23 @@ const ANNOT_Z = 1e7, WATERMARK_Z = -1;
 const SNAP_PX = 5;
 
 /**
- * The Move & resize tool. Selects page objects and annotations (click, Shift/Ctrl-click, marquee), moves and
- * resizes them with snapping guides, and provides align/distribute/match size, stacking order, image
- * rotate/flip/crop/replace, delete, duplicate and clipboard data.
+ * Object selection for the Select tool: selects annotations, pictures and added text (click, Shift/Ctrl-click,
+ * marquee), moves and resizes them with snapping guides, and provides align/distribute/match size, stacking
+ * order, image rotate/flip/crop/replace, delete, duplicate and clipboard data. The Form field and Link tools use
+ * it to move and resize their fields and links, and Edit text to drag lines of text (`press`).
  *
- * The selection is `sel` (the primary item, last clicked) plus `extra` (other keys on the same page).
+ * Which items a page offers depends on the tool (`inScope`). The selection is `sel` (the primary item, last
+ * clicked) plus `extra` (other keys on the same page).
  */
 class Arrange {
   app: App;
   v: Viewer;
   sel: Selection | null = null;
   extra: string[] = [];
-  /** Items per page index, smallest first; rebuilt on each overlay. */
+  /** Items per page index for the current tool, smallest first; rebuilt on each overlay. */
   items: Map<number, ArrangeItem[]> = /* @__PURE__ */ new Map();
+  /** the tool `items` was built for */
+  itemsTool = "";
   onChange: () => void = () => {
   };
   /** Edits a text box: (page, annot index, change to its data, undo label). Set by main. */
@@ -79,13 +86,45 @@ class Arrange {
     this.app = app;
     this.v = viewer;
   }
-  /** The selectable items on a page, smallest first (cached). Clicks pick by stacking order instead: `stackAt`. */
+  /**
+   * Whether the current tool works on `item`: Select on annotations (not fields or links), pictures and added
+   * text; Form field on fields; Link on links; Edit text on text. Other tools (and code acting on an annotation
+   * directly) see everything.
+   */
+  inScope(item: ArrangeItem): boolean {
+    switch (this.app.tool) {
+      case "select":
+        return item.kind === "annot" ? item.label !== "Link" && item.label !== "Form field" : item.kind !== "line";
+      case "form":
+        return item.label === "Form field";
+      case "link":
+        return item.label === "Link";
+      case "edittext":
+        return item.kind === "line" || item.kind === "block" && !/^(wm|bg)$/.test(item.block || "");
+      default:
+        return true;
+    }
+  }
+  /** The current tool's items on a page, smallest first (cached). Clicks pick by stacking order instead: `stackAt`. */
   itemsOf(pv: PageView): ArrangeItem[] {
+    if (this.itemsTool !== this.app.tool) {
+      this.items.clear();
+      this.itemsTool = this.app.tool;
+    }
     let items = this.items.get(pv.index);
     if (items) return items;
-    const doc = this.app.doc;
-    items = [];
-    for (const a of this.v.annotsOf(pv) as AnnotInfo[]) if (!(isTextMarkup(a.subtype) || a.subtype === ANNOT.POPUP || a.subtype === ANNOT.REDACT)) {
+    items = this.allItems(pv).filter((it) => this.inScope(it));
+    this.items.set(pv.index, items);
+    return items;
+  }
+  /** Every selectable item on a page, whatever the tool, smallest first (not cached). */
+  allItems(pv: PageView): ArrangeItem[] {
+    const doc = this.app.doc, items: ArrangeItem[] = [];
+    for (const a of this.v.annotsOf(pv) as AnnotInfo[]) if (a.subtype !== ANNOT.POPUP) {
+      if (isTextMarkup(a.subtype) || a.subtype === ANNOT.REDACT) {
+        items.push({ kind: "annot", key: "a" + a.index, label: a.subtype === ANNOT.REDACT ? "Redaction mark" : ANNOT_NAMES[a.subtype] || "Markup", bounds: a.rect, objs: [], annot: a.index, uniform: false, resizable: false, fixed: true, z: ANNOT_Z + a.index });
+        continue;
+      }
       if (a.subtype === ANNOT.FREETEXT && a.ft) {
         items.push({ kind: "annot", key: "a" + a.index, label: a.ft.tip ? "Callout" : "Text box", bounds: a.ft.box, objs: [], annot: a.index, uniform: false, resizable: true, ft: a.ft, z: ANNOT_Z + a.index });
         continue;
@@ -115,7 +154,6 @@ class Arrange {
     for (const line of groupTextRuns(this.v.textsOf(pv))) if (!line.block) items.push({ kind: "line", key: "l" + line.objs[0].index, label: "Text", bounds: line.bounds, objs: line.objs.map((o) => o.index), uniform: true, resizable: true, z: Math.max(...line.objs.map((o) => o.index)) });
     const area = (r: Rect) => (r.r - r.l) * (r.t - r.b);
     items.sort((a, b) => area(a.bounds) - area(b.bounds));
-    this.items.set(pv.index, items);
     return items;
   }
   /** Drops cached items for one page, or for all pages. */
@@ -123,29 +161,36 @@ class Arrange {
     if (page == null) this.items.clear();
     else this.items.delete(page);
   }
-  /** Draws hit boxes for every item and the selection frame(s) on a page overlay. */
-  overlay(pv: PageView): void {
+  /**
+   * Draws hit boxes for every item (unless the tool draws its own: `boxes` false) and the selection frame(s) on
+   * a page overlay. Returns false while an image is being cropped (the overlay is the crop frame).
+   */
+  overlay(pv: PageView, boxes = true): boolean {
     this.items.delete(pv.index);
     if (this.cropping) {
       this.cropOverlay(pv);
-      return;
+      return false;
     }
     const items = this.itemsOf(pv);
     // Back to front, so the hover title is the item in front.
-    for (const item of [...items].sort((a, b) => a.z - b.z)) {
+    if (boxes) for (const item of [...items].sort((a, b) => a.z - b.z)) {
       const box = pv.tf.box(item.bounds);
       pv.ov.append(h("div", { class: "obox", "data-k": item.key, title: item.label, style: { left: box.x - 2 + "px", top: box.y - 2 + "px", width: box.w + 4 + "px", height: box.h + 4 + "px" } }));
     }
     const sel = this.sel;
-    if (!sel || sel.page !== pv.index) return;
+    if (!sel || sel.page !== pv.index) return true;
     this.extra = this.extra.filter((k) => k !== sel.key && items.some((it) => it.key === k));
     const primary = items.find((it) => it.key === sel.key);
     if (!primary) {
-      // The primary item is gone (deleted or changed): promote the next one.
+      // The primary item is gone (deleted or changed) or isn't this tool's: promote the next one.
       const next = this.extra.shift();
       this.sel = next ? { page: sel.page, key: next } : null;
-      if (this.sel) this.overlay(pv);
-      return;
+      if (this.sel) {
+        pv.ov.querySelectorAll(".oframe,.ogroup").forEach((el) => el.remove());
+        return this.overlay(pv, boxes);
+      }
+      this.onChange();
+      return true;
     }
     if (this.extra.length) {
       const selected = this.selected(pv);
@@ -155,9 +200,10 @@ class Arrange {
       }
       const group = this.groupBox(pv, selected);
       pv.ov.append(h("div", { class: "ogroup", style: { left: group.x - 5 + "px", top: group.y - 5 + "px", width: group.w + 10 + "px", height: group.h + 10 + "px" } }, h("span", { class: "olabel", text: `${selected.length} objects · ${this.size(pv, group)}` })));
-      return;
+      return true;
     }
     pv.ov.append(this.frame(pv, primary, pv.tf.box(primary.bounds)));
+    return true;
   }
   /** The selected items (primary first), looked up on `pv` or the selection's page view. */
   selected(pv?: PageView): ArrangeItem[] {
@@ -178,8 +224,9 @@ class Arrange {
    * Clicking an item on another page starts a new selection there.
    */
   toggle(pv: PageView, key: string): void {
-    const sel = this.sel;
-    if (!sel || sel.page !== pv.index) {
+    const sel = this.sel, items = this.itemsOf(pv), isFixed = (k: string) => !!items.find((it) => it.key === k)?.fixed;
+    // Markup and redaction marks can't be moved with others, so they are only ever selected on their own.
+    if (!sel || sel.page !== pv.index || isFixed(key) || isFixed(sel.key)) {
       this.sel = { page: pv.index, key: key };
       this.extra = [];
     } else if (sel.key === key) {
@@ -197,7 +244,7 @@ class Arrange {
   selectAll(): void {
     const pv = this.v.views[this.sel?.page ?? this.app.currentPage];
     if (!pv) return;
-    const items = this.itemsOf(pv).filter((it) => it.kind !== "block" || !/^(wm|bg|hf-)/.test(it.block || ""));
+    const items = this.itemsOf(pv).filter((it) => !it.fixed && (it.kind !== "block" || !/^(wm|bg|hf-)/.test(it.block || "")));
     if (items.length) {
       this.sel = { page: pv.index, key: items[0].key };
       this.extra = items.slice(1).map((it) => it.key);
@@ -215,7 +262,7 @@ class Arrange {
   }
   /** Selection frame for a single item: size label, resize handles and end-point handles ("p0"/"p1"). */
   frame(pv: PageView, item: ArrangeItem, box: Box): HTMLElement {
-    const el = h("div", { class: "oframe" + (item.resizable ? "" : " fixed"), "data-k": item.key, style: { left: box.x - 2 + "px", top: box.y - 2 + "px", width: box.w + 4 + "px", height: box.h + 4 + "px" } }, h("span", { class: "olabel", text: `${item.label} · ${this.size(pv, box)}` }));
+    const el = h("div", { class: "oframe" + (item.resizable ? "" : " fixed") + (item.fixed ? " still" : ""), "data-k": item.key, style: { left: box.x - 2 + "px", top: box.y - 2 + "px", width: box.w + 4 + "px", height: box.h + 4 + "px" } }, h("span", { class: "olabel", text: `${item.label} · ${this.size(pv, box)}` }));
     if (item.resizable) {
       for (const handle of HANDLES) {
         // Uniform items get corner handles only; wrapping text also gets the side handles that reflow it.
@@ -250,14 +297,15 @@ class Arrange {
     }
     const additive = ev.shiftKey || ev.ctrlKey || ev.metaKey;
     if (!hit) {
-      ev.preventDefault();
+      // A finger on empty space scrolls the page; a mouse drags a selection box.
+      if (ev.pointerType !== "touch") ev.preventDefault();
       if (!additive && this.sel) {
         this.sel = null;
         this.extra = [];
         this.refresh();
         this.onChange();
       }
-      this.marquee(ev, pv, additive);
+      if (ev.pointerType !== "touch") this.marquee(ev, pv, additive);
       return;
     }
     ev.preventDefault();
@@ -276,10 +324,38 @@ class Arrange {
       this.onChange();
     }
     const frameEl = pv.ov.querySelector<HTMLElement>(".oframe");
+    if (hit.fixed) return;
     if (frameEl) {
       if ((hit.line || hit.ft?.tip) && handle && /^p[01]$/.test(handle.dataset.h!)) return this.dragEnd(ev, pv, hit, +handle.dataset.h![1]);
       this.drag(ev, pv, hit, frameEl, handle?.dataset.h || null);
     }
+  }
+  /**
+   * Pointer down on an item that another tool draws (a form field, a link, a line of text): dragging moves it,
+   * a click without moving runs `click`. With `select`, the item becomes the selection (frame and resize
+   * handles) first; otherwise a frame shows only while dragging.
+   */
+  press(ev: PointerEvent, pv: PageView, key: string, click: () => void, select = true): void {
+    const item = this.itemsOf(pv).find((it) => it.key === key);
+    if (!item || item.fixed) return click();
+    ev.preventDefault();
+    if (select && (this.sel?.page !== pv.index || this.sel.key !== key || this.extra.length)) {
+      this.sel = { page: pv.index, key };
+      this.extra = [];
+      this.refresh();
+      this.onChange();
+    }
+    let frameEl = select ? pv.ov.querySelector<HTMLElement>(`.oframe[data-k="${key}"]`) : null;
+    if (!frameEl) {
+      const box = pv.tf.box(item.bounds);
+      frameEl = h("div", { class: "oframe ghost", style: { left: box.x - 2 + "px", top: box.y - 2 + "px", width: box.w + 4 + "px", height: box.h + 4 + "px" } }, h("span", { class: "olabel" }));
+      pv.ov.append(frameEl);
+    }
+    this.drag(ev, pv, item, frameEl, null, click);
+  }
+  /** Whether a pointer-down target is on the selection frame's handles (resize or end point). */
+  onHandle(target: EventTarget | null): boolean {
+    return !!(target as HTMLElement | null)?.closest?.(".ohandle");
   }
   /**
    * The items under an overlay point, front to back: the one drawn on top first (annotations above page
@@ -298,7 +374,7 @@ class Arrange {
    * item's edges and centre to the page and to other items unless Alt is held; corner resizes keep the
    * aspect ratio (always for uniform items, otherwise unless Shift is held). Commits through `apply`.
    */
-  drag(ev: PointerEvent, pv: PageView, item: ArrangeItem, frameEl: HTMLElement, handle: string | null): void {
+  drag(ev: PointerEvent, pv: PageView, item: ArrangeItem, frameEl: HTMLElement, handle: string | null, onClick?: () => void): void {
     const ov = pv.ov;
     ov.setPointerCapture(ev.pointerId);
     const start = pv.tf.box(item.bounds), startX = ev.clientX, startY = ev.clientY, pageW = pv.w * this.v.zoom, pageH = pv.h * this.v.zoom, others = this.itemsOf(pv).filter((it) => it !== item).map((it) => pv.tf.box(it.bounds)), snapXs = [0, pageW / 2, pageW, ...others.flatMap((b) => [b.x, b.x + b.w / 2, b.x + b.w])], snapYs = [0, pageH / 2, pageH, ...others.flatMap((b) => [b.y, b.y + b.h / 2, b.y + b.h])];
@@ -342,12 +418,15 @@ class Arrange {
         Object.assign(frameEl.style, { left: box.x - 2 + "px", top: box.y - 2 + "px", width: box.w + 4 + "px", height: box.h + 4 + "px" });
         if (label) label.textContent = `${item.label} · ${this.size(pv, box)}`;
       }
-    }, onUp = () => {
+    }, onUp = (e: PointerEvent) => {
       ov.removeEventListener("pointermove", onMove);
       ov.removeEventListener("pointerup", onUp);
       ov.removeEventListener("pointercancel", onUp);
       guides.remove();
+      if (frameEl.classList.contains("ghost")) frameEl.remove();
       if (moved) this.apply(pv, item, start, box);
+      // A cancelled pointer (the page scrolled under a finger) is not a click.
+      else if (e.type !== "pointercancel") onClick?.();
     };
     ov.addEventListener("pointermove", onMove);
     ov.addEventListener("pointerup", onUp);
@@ -379,7 +458,7 @@ class Arrange {
       const b: Box = band, inside = this.itemsOf(pv).filter((it) => {
         const box = pv.tf.box(it.bounds), cx = box.x + box.w / 2, cy = box.y + box.h / 2;
         return cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
-      }).filter((it) => it.kind !== "block" || !/^(wm|bg|hf-)/.test(it.block || ""));
+      }).filter((it) => !it.fixed && (it.kind !== "block" || !/^(wm|bg|hf-)/.test(it.block || "")));
       if (!inside.length) return;
       const keys = new Set(additive && this.sel?.page === pv.index ? [this.sel.key, ...this.extra] : []);
       for (const it of inside) keys.add(it.key);
@@ -640,6 +719,7 @@ class Arrange {
     }
     const pv = this.v.views[sel.page], item = pv && this.itemsOf(pv).find((it) => it.key === sel.key);
     if (!item) return false;
+    if (item.fixed) return true;
     const box = pv.tf.box(item.bounds), zoom = this.v.zoom;
     this.apply(pv, item, box, { ...box, x: box.x + dx * zoom, y: box.y + dy * zoom });
     return true;
@@ -720,7 +800,7 @@ class Arrange {
       toast((err as Error).message, "err");
       return [];
     }
-    if (this.app.tool === "arrange" && keys.length) {
+    if (this.app.tool === "select" && keys.length) {
       this.invalidate(page);
       this.sel = { page: page, key: keys[0] };
       this.extra = keys.slice(1);
@@ -747,12 +827,22 @@ class Arrange {
     const [dx, dy] = this.screenOffset(page);
     return this.paste(page, clip.items, dx, dy, clip.items.length > 1 ? `Duplicate ${clip.items.length} objects` : "Duplicate");
   }
-  /** The item for annotation `annot` on `page` (re-reading the page unless the tool is active), or null. */
+  /** The item for annotation `annot` on `page`, whatever the tool, or null. */
   itemOfAnnot(page: number, annot: number): ArrangeItem | null {
     const pv = this.v.views[page];
-    if (!pv) return null;
-    if (this.app.tool !== "arrange") this.items.delete(page);
-    return this.itemsOf(pv).find((it) => it.key === "a" + annot) || null;
+    return pv && this.allItems(pv).find((it) => it.key === "a" + annot) || null;
+  }
+  /** The selected annotation, when the selection is one annotation (not a field or link). */
+  annotRef(): { page: number; index: number } | null {
+    const sel = this.sel;
+    if (!sel || this.extra.length || sel.key[0] !== "a") return null;
+    return { page: sel.page, index: +sel.key.slice(1) };
+  }
+  /** Selects one annotation (null clears the selection); the caller refreshes the overlays. */
+  selectAnnot(ref: { page: number; index: number } | null): void {
+    this.sel = ref ? { page: ref.page, key: "a" + ref.index } : null;
+    this.extra = [];
+    this.cropping = null;
   }
   /** The single selected item, or null when nothing or several are selected. */
   current(): ArrangeItem | null {
@@ -884,12 +974,10 @@ class Arrange {
     });
     return true;
   }
+  /** Redraws the overlays of the tools that show a selection (Select, Form field, Link). */
   refresh(): void {
     for (const pv of this.v.views) {
-      if (pv.ov.dataset.tool === "arrange" && pv.visible) {
-        pv.ov.replaceChildren();
-        this.overlay(pv);
-      }
+      if (/^(select|form|link)$/.test(pv.ov.dataset.tool || "") && pv.visible) this.v.overlayOf(pv);
     }
   }
 }

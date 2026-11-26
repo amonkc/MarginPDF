@@ -84,7 +84,7 @@ interface SearchHit {
 }
 
 
-/** An edge or centre line that Move & resize can align objects on. */
+/** An edge or centre line that Select can align objects on. */
 type AlignEdge = Parameters<Arrange["align"]>[0];
 
 /** A bold/italic/underline/strike text style flag. */
@@ -133,7 +133,15 @@ async function main(): Promise<void> {
   const interact = new Interact(app, viewer);
   const arrange = new Arrange(app, viewer);
   interact.arrange = arrange;
-  arrange.onChange = () => renderRibbon();
+  arrange.onChange = () => {
+    renderRibbon();
+    commentsPanel.markSelected();
+  };
+  // The selected annotation is the Select tool's selection when that is one annotation.
+  app.annotSelection = {
+    get: () => (app.tool === "select" ? arrange.annotRef() : null),
+    set: (ref) => arrange.selectAnnot(ref),
+  };
   const crop = new Crop(app, viewer);
   interact.crop = crop;
   crop.onChange = () => renderRibbon();
@@ -213,7 +221,7 @@ async function main(): Promise<void> {
   );
   const rail = $("#rail");
   [
-    ["select", "arrange", "edittext", "addtext"],
+    ["select", "edittext", "addtext"],
     ["highlight", "underline", "strike"],
     ["textbox", "draw", "line", "rect", "ellipse", "note"],
     ["image", "stamp", "sign", "link"],
@@ -699,8 +707,10 @@ async function main(): Promise<void> {
     const info = TOOL_INFO[tool];
     const items: Node[] = [h("span", { class: "rtool", text: info.label })];
     if (tool === "select") {
-      const sel = app.selectedAnnot;
-      if (sel) {
+      // One annotation selected: its style first, then what Select does with any object.
+      const annotSel = arrange.cropping ? null : app.selectedAnnot;
+      if (annotSel) {
+        const sel = annotSel;
         const annot = app.doc.annots(sel.page).find((candidate: AnnotInfo) => candidate.index === sel.index);
         if (annot) {
           if (annot.subtype === 3 && annot.ft) {
@@ -839,28 +849,8 @@ async function main(): Promise<void> {
               }
             }
           }
-          items.push(
-            h(
-              "button",
-              { class: "btn ghost small", type: "button", onclick: () => deleteSelectedAnnot() },
-              icon("trash"),
-              "Delete",
-            ),
-          );
-          items.push(
-            h("span", {
-              class: "hint",
-              text:
-                annot.subtype >= 9 && annot.subtype <= 12
-                  ? "Text markup stays attached to its text."
-                  : annot.subtype === 3
-                    ? "Drag to move. Double-click to edit the text."
-                    : "Drag to move. Double-click to comment.",
-            }),
-          );
         }
-      } else items.push(h("span", { class: "hint", text: info.hint }));
-    } else if (tool === "arrange") {
+      }
       const sel = arrange.sel;
       const current = arrange.current();
       if (arrange.cropping)
@@ -901,7 +891,8 @@ async function main(): Promise<void> {
             icon(iconName),
           );
         const count = arrange.selected().length;
-        items.push(
+        // One annotation: its style (above), Delete and a hint; aligning and ordering are in its right-click menu.
+        if (!current?.fixed && !annotSel) items.push(
           h(
             "div",
             { class: "fmt-group", role: "group", "aria-label": count > 1 ? "Align" : "Align to page" },
@@ -977,10 +968,17 @@ async function main(): Promise<void> {
           ),
         );
         if (count === 1 && current?.kind !== "image") {
+          const subtype = annotSel && app.doc.annots(annotSel.page).find((a: AnnotInfo) => a.index === annotSel.index)?.subtype;
           items.push(
             h("span", {
               class: "hint",
-              text: "Shift-click or drag a box to select more; Alt-click selects what’s behind. Arrows nudge 1 pt (Shift: 10).",
+              text: current?.fixed
+                ? "Markup stays on its text: change its colour, comment on it or delete it."
+                : subtype === ANNOT.FREETEXT || current?.kind === "block"
+                  ? "Double-click to edit the text. Shift-click or drag a box to select more; Alt-click selects what’s behind."
+                  : subtype != null
+                    ? "Double-click to comment. Shift-click or drag a box to select more; Alt-click selects what’s behind."
+                    : "Shift-click or drag a box to select more; Alt-click selects what’s behind. Arrows nudge 1 pt (Shift: 10).",
             }),
           );
         }
@@ -2043,10 +2041,6 @@ async function main(): Promise<void> {
     commentsPanel.markSelected();
     renderRibbon();
   };
-  interact.onSelect = () => {
-    commentsPanel.markSelected();
-    renderRibbon();
-  };
   interact.onEditor = () => renderRibbon();
   commentsPanel.onEditFreeText = (page, index, text) => {
     textBoxes.update(page, index, (data) => ({ ...data, text }), "Edit text box");
@@ -2998,13 +2992,7 @@ async function main(): Promise<void> {
       toast("Couldn’t find that annotation to duplicate", "err");
       return;
     }
-    const keys = await arrange.duplicate(page, [item]);
-    if (app.tool === "select" && keys[0]?.startsWith("a")) {
-      app.selectedAnnot = { page, index: +keys[0].slice(1) };
-      interact.refreshOverlays();
-      commentsPanel.markSelected();
-      renderRibbon();
-    }
+    await arrange.duplicate(page, [item]);
   }
   /** Brings an annotation to the front or sends it to the back among the page’s annotations. */
   const restackAnnot = (page: number, index: number, where: "front" | "back") =>
@@ -3042,18 +3030,16 @@ async function main(): Promise<void> {
     const { locked, perms } = app.limits;
     return !locked || !!(perms & 16);
   };
-  /** The objects that Copy/Cut would act on: the Move & resize selection or the selected annotation. */
+  /** The objects that Copy/Cut would act on: the Select tool's selection. */
   function objectSelection(): { page: number; items: ArrangeItem[] } | null {
-    if (app.tool === "arrange" && arrange.sel && !arrange.cropping) {
+    if (app.tool === "select" && arrange.sel && !arrange.cropping) {
       const items = arrange.selected();
       return items.length ? { page: arrange.sel.page, items } : null;
     }
-    if (app.tool === "select" && app.selectedAnnot) {
-      const item = arrange.itemOfAnnot(app.selectedAnnot.page, app.selectedAnnot.index);
-      return item ? { page: app.selectedAnnot.page, items: [item] } : null;
-    }
     return null;
   }
+  /** Whether the permissions allow changing these items: page content needs modify, annotations annotate. */
+  const canChange = (items: ArrangeItem[]) => (items.some((item) => item.kind !== "annot") ? canModify() : canAnnotate());
   /**
    * Copies (or cuts) the selected objects to the object clipboard. Returns the marker text for the system
    * clipboard, or null when nothing could be copied.
@@ -3065,7 +3051,7 @@ async function main(): Promise<void> {
       toast("This PDF’s permissions don’t allow copying. Unlock it with its permissions password first.", "warn", 5e3);
       return null;
     }
-    if (cut && !(app.tool === "arrange" ? canModify() : canAnnotate())) {
+    if (cut && !canChange(selection.items)) {
       toast("This PDF’s permissions don’t allow removing objects", "warn");
       return null;
     }
@@ -3146,7 +3132,8 @@ async function main(): Promise<void> {
       return toast("Those copied objects are no longer available: copy them again.", "warn");
     if (!(clip.items.some((item) => item.t === "img") ? canModify() : canAnnotate()))
       return toast("This PDF’s permissions don’t allow adding these", "warn");
-    const page = at?.page ?? (app.tool === "arrange" && arrange.sel ? arrange.sel.page : app.currentPage);
+    // The page in view (where the user has scrolled to), unless pasting at a spot.
+    const page = at?.page ?? app.currentPage;
     const view = viewer.views[page];
     if (!view) return;
     const bounds = clip.bounds;
@@ -3186,20 +3173,13 @@ async function main(): Promise<void> {
       dy,
       clip.count > 1 ? `Paste ${clip.count} objects` : "Paste",
     );
-    if (keys.length) {
-      if (app.tool === "select" && keys.length === 1 && keys[0][0] === "a") {
-        app.selectedAnnot = { page, index: +keys[0].slice(1) };
-        interact.refreshOverlays();
-        commentsPanel.markSelected();
-        renderRibbon();
-      } else if (app.tool !== "arrange") {
-        app.setTool("arrange");
-        arrange.invalidate(page);
-        arrange.sel = { page, key: keys[0] };
-        arrange.extra = keys.slice(1);
-        arrange.refresh();
-        renderRibbon();
-      }
+    if (keys.length && app.tool !== "select") {
+      app.setTool("select");
+      arrange.invalidate(page);
+      arrange.sel = { page, key: keys[0] };
+      arrange.extra = keys.slice(1);
+      arrange.refresh();
+      renderRibbon();
     }
   }
   /** Cut, Copy and Paste entries for the object menus. */
@@ -3227,7 +3207,7 @@ async function main(): Promise<void> {
       },
     ];
   };
-  /** Right-click menu for an annotation with Select. */
+  /** Right-click menu for one selected annotation (Select tool). */
   async function annotMenu(
     page: number,
     index: number,
@@ -3243,7 +3223,6 @@ async function main(): Promise<void> {
     commentsPanel.markSelected();
     renderRibbon();
     const canEdit = canAnnotate();
-    const isMarkup = annot.subtype >= 9 && annot.subtype <= 12;
     const isFreeText = annot.subtype === 3;
     const isStamp = annot.subtype === 13;
     const kind =
@@ -3300,19 +3279,6 @@ async function main(): Promise<void> {
       { label: "Bring to front", disabled: !canEdit, run: () => restackAnnot(page, index, "front") },
       { label: "Send to back", disabled: !canEdit, run: () => restackAnnot(page, index, "back") },
     );
-    if (!isMarkup) {
-      items.push({
-        label: "Move & resize",
-        disabled: !canEdit,
-        run: () => {
-          app.setTool("arrange");
-          arrange.sel = { page, key: "a" + index };
-          arrange.extra = [];
-          arrange.refresh();
-          renderRibbon();
-        },
-      });
-    }
     items.push("sep", {
       label: "Delete",
       shortcut: "Del",
@@ -3322,7 +3288,7 @@ async function main(): Promise<void> {
     });
     openMenu(clientX, clientY, items, anchor);
   }
-  /** Replaces the picture selected in Move & resize with an image file, fitted to its box. */
+  /** Replaces the selected picture with an image file, fitted to its box. */
   async function replaceSelectedImage(): Promise<void> {
     const sel = arrange.sel;
     const current = arrange.current();
@@ -3341,7 +3307,7 @@ async function main(): Promise<void> {
         toast((err as Error).message, "err");
       }
   }
-  /** Saves the picture selected in Move & resize as JPEG (if stored as JPEG) or PNG. */
+  /** Saves the selected picture as JPEG (if stored as JPEG) or PNG. */
   async function saveSelectedImage(): Promise<ToastHandle | void> {
     const sel = arrange.sel;
     const current = arrange.current();
@@ -3459,14 +3425,14 @@ async function main(): Promise<void> {
     await saveFile(makeZip(files), `${base}-images.zip`, "application/zip");
     toast(`Saved ${files.length} images in ${base}-images.zip`, "ok", 4e3);
   }
-  /** Right-click menu for the Move & resize selection (one or several objects). */
+  /** Right-click menu for the Select tool's selection of pictures, added text or several objects. */
   async function arrangeMenu(clientX: number, clientY: number, anchor?: HTMLElement): Promise<void> {
     const clip = await getObjClip();
     const items = arrange.selected();
     const count = items.length;
     if (!count) return;
     const page = arrange.sel!.page;
-    const canEdit = canModify();
+    const canEdit = canChange(items);
     const menu: MenuItem[] = [];
     if (count === 1) {
       const item = items[0];
@@ -3601,7 +3567,7 @@ async function main(): Promise<void> {
     app.selectedPages = new Set([page]);
     thumbs.mark();
     const menu: MenuItem[] = [{ heading: `Page ${page + 1}` }];
-    if (app.tool === "arrange") {
+    if (app.tool === "select") {
       menu.push(
         {
           label: "Select all objects",
@@ -3708,49 +3674,41 @@ async function main(): Promise<void> {
       anchor,
     );
   }
+  /** Opens the menu for the Select tool's selection: one annotation's own menu, or the object menu. */
+  function selectionMenu(clientX: number, clientY: number, anchor?: HTMLElement): void {
+    const ref = app.selectedAnnot;
+    if (ref) annotMenu(ref.page, ref.index, clientX, clientY, anchor);
+    else arrangeMenu(clientX, clientY, anchor);
+  }
+  /** Makes `key` on `page` the selection unless it is already part of it. */
+  function selectForMenu(page: number, key: string): void {
+    if (arrange.sel?.page === page && (arrange.sel.key === key || arrange.extra.includes(key))) return;
+    arrange.sel = { page, key };
+    arrange.extra = [];
+    arrange.refresh();
+    renderRibbon();
+    commentsPanel.markSelected();
+  }
   viewer.el.addEventListener("contextmenu", (event) => {
-    if ((app.tool !== "select" && app.tool !== "arrange") || isTypingIn(event.target)) return;
+    if (app.tool !== "select" || isTypingIn(event.target)) return;
     const target = event.target as HTMLElement;
     const pageEl = target.closest<HTMLElement>(".page");
     if (!pageEl) return;
     const page = +pageEl.dataset.index!;
     const view = viewer.views[page];
-    if (!view) return;
-    if (app.tool === "arrange") {
-      if (arrange.cropping) return;
-      event.preventDefault();
-      const key = target.closest<HTMLElement>("[data-k]")?.dataset.k;
-      if (key) {
-        if (!(arrange.sel?.page === page && (arrange.sel.key === key || arrange.extra.includes(key)))) {
-          arrange.sel = { page, key };
-          arrange.extra = [];
-          arrange.refresh();
-          renderRibbon();
-        }
-        arrangeMenu(event.clientX, event.clientY);
-      } else if (target.closest<HTMLElement>(".ogroup") && arrange.sel?.page === page) {
-        arrangeMenu(event.clientX, event.clientY);
-      } else {
-        if (arrange.sel) {
-          arrange.clear();
-        }
-        pageSpaceMenu(page, event.clientX, event.clientY, viewer.toPage(view, event));
-      }
-      return;
-    }
-    if (window.getSelection()?.toString()) return;
-    const annotBox = target.closest<HTMLElement>(".abox");
-    const linkBox = target.closest<HTMLElement>(".lbox");
+    if (!view || arrange.cropping) return;
+    if (target.closest<HTMLElement>(".fld,.sigfld,input,select,button")) return;
     event.preventDefault();
-    if (annotBox) annotMenu(page, +annotBox.dataset.annot!, event.clientX, event.clientY, annotBox);
-    else if (linkBox) linkMenu(page, +linkBox.dataset.link!, event.clientX, event.clientY, linkBox);
-    else {
-      if (target.closest<HTMLElement>(".fld,.sigfld,input,select,button")) return;
-      if (app.selectedAnnot) {
-        app.selectedAnnot = null;
-        interact.refreshOverlays();
-        renderRibbon();
-      }
+    const linkBox = target.closest<HTMLElement>(".lbox");
+    const key = target.closest<HTMLElement>("[data-k]")?.dataset.k;
+    if (linkBox) linkMenu(page, +linkBox.dataset.link!, event.clientX, event.clientY, linkBox);
+    else if (key) {
+      selectForMenu(page, key);
+      selectionMenu(event.clientX, event.clientY);
+    } else if (target.closest<HTMLElement>(".ogroup") && arrange.sel?.page === page) {
+      selectionMenu(event.clientX, event.clientY);
+    } else {
+      if (arrange.sel) arrange.clear();
       pageSpaceMenu(page, event.clientX, event.clientY, viewer.toPage(view, event));
     }
   });
@@ -3762,39 +3720,35 @@ async function main(): Promise<void> {
       thumbOf(event.target)
     )
       return;
-    if (app.tool === "arrange" && arrange.sel && !arrange.cropping) {
-      const frame = viewer.views[arrange.sel.page]?.ov.querySelector(".oframe.primary, .oframe:not(.multi)");
+    if (app.tool === "select" && arrange.sel && !arrange.cropping) {
+      const frame = viewer.views[arrange.sel.page]?.ov.querySelector<HTMLElement>(".oframe.primary, .oframe:not(.multi)");
       if (!frame) return;
       event.preventDefault();
       const rect = frame.getBoundingClientRect();
-      arrangeMenu(rect.left + Math.min(rect.width, 40), rect.bottom + 4);
-      return;
+      selectionMenu(rect.left + Math.min(rect.width, 40), rect.bottom + 4, frame);
     }
-    const sel = app.selectedAnnot;
-    if (!sel || app.tool !== "select") return;
-    const box = viewer.views[sel.page]?.ov.querySelector<HTMLElement>(`.abox[data-annot="${sel.index}"]`);
-    if (!box) return;
-    event.preventDefault();
-    const boxRect = box.getBoundingClientRect();
-    annotMenu(sel.page, sel.index, boxRect.left + Math.min(boxRect.width, 40), boxRect.bottom + 4, box);
   });
   let annotPress: LongPress | null = null;
   viewer.el.addEventListener(
     "pointerdown",
     (event) => {
       if (event.pointerType !== "touch" || app.tool !== "select") return;
-      const box = (event.target as HTMLElement).closest<HTMLElement>(".abox,.lbox");
-      if (box) {
+      const box = (event.target as HTMLElement).closest<HTMLElement>("[data-k],.lbox");
+      const pageEl = box?.closest<HTMLElement>(".page");
+      if (box && pageEl) {
+        const page = +pageEl.dataset.index!;
+        const key = box.dataset.k;
+        const link = box.classList.contains("lbox") ? +box.dataset.link! : -1;
         annotPress = {
           t: window.setTimeout(() => {
             if (!annotPress || menuOpen()) return;
-            const page = +annotPress.el.closest<HTMLElement>(".page")!.dataset.index!;
-            if (annotPress.el.classList.contains("abox")) {
-              annotMenu(page, +annotPress.el.dataset.annot!, annotPress.x, annotPress.y, annotPress.el);
-            } else {
-              linkMenu(page, +annotPress.el.dataset.link!, annotPress.x, annotPress.y, annotPress.el);
-            }
+            const { x, y } = annotPress;
             annotPress = null;
+            if (link >= 0) linkMenu(page, link, x, y);
+            else if (key) {
+              selectForMenu(page, key);
+              selectionMenu(x, y);
+            }
           }, 550),
           x: event.clientX,
           y: event.clientY,
@@ -4164,7 +4118,7 @@ async function main(): Promise<void> {
           return;
         }
       }
-      if (app.tool === "arrange" && arrange.cropping) {
+      if (app.tool === "select" && arrange.cropping) {
         if (event.key === "Enter") {
           event.preventDefault();
           arrange.applyCrop(encodePixels);
@@ -4177,29 +4131,22 @@ async function main(): Promise<void> {
         }
       }
       if (mod && !event.shiftKey && event.key.toLowerCase() === "d") {
-        if (app.tool === "arrange" && arrange.sel && !arrange.cropping) {
+        if (app.tool === "select" && arrange.sel && !arrange.cropping) {
           event.preventDefault();
-          if (canModify()) {
+          if (canChange(arrange.selected())) {
             arrange.duplicate(arrange.sel.page);
           }
           return;
         }
-        if (app.tool === "select" && app.selectedAnnot) {
-          event.preventDefault();
-          if (canAnnotate()) {
-            duplicateAnnot(app.selectedAnnot.page, app.selectedAnnot.index);
-          }
-          return;
-        }
       }
-      if (app.tool === "arrange" && !inField && mod && event.key.toLowerCase() === "a") {
+      if (app.tool === "select" && !inField && mod && event.key.toLowerCase() === "a") {
         event.preventDefault();
         arrange.selectAll();
         renderRibbon();
         return;
       }
       if (
-        app.tool === "arrange" &&
+        app.tool === "select" &&
         arrange.sel &&
         mod &&
         (event.key === "]" || event.key === "[" || event.code === "BracketRight" || event.code === "BracketLeft")
@@ -4209,7 +4156,7 @@ async function main(): Promise<void> {
         arrange.restack(event.shiftKey ? (forward ? "front" : "back") : forward ? "forward" : "backward");
         return;
       }
-      if (app.tool === "arrange" && arrange.sel) {
+      if ((app.tool === "select" || app.tool === "form" || app.tool === "link") && arrange.sel) {
         const step = event.shiftKey ? 10 : 1;
         const moves: Record<string, [number, number]> = {
           ArrowLeft: [-step, 0],
@@ -4232,11 +4179,6 @@ async function main(): Promise<void> {
           renderRibbon();
           return;
         }
-      }
-      if ((event.key === "Delete" || event.key === "Backspace") && app.selectedAnnot) {
-        event.preventDefault();
-        deleteSelectedAnnot();
-        return;
       }
       if (event.key === "Escape") {
         app.setTool("select");

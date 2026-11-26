@@ -10,6 +10,17 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.45.0",
+    date: "2026-11-26",
+    notes: [
+      "One Select tool (V) instead of Select and Move & resize. Click any annotation, picture or added text to select it, drag to move it and drag a handle to resize it; Shift-click or drag a box to select several, then align, distribute, copy or delete them together. Highlights and other markup can be selected (to restyle, comment on or delete) but stay on their text.",
+      "Double-click to edit: a text box or added text opens for editing, an annotation opens its comment, and the page’s own text switches to Edit text right there.",
+      "Form fields still fill in and links still open with Select. To move or resize them, use the Form field or Link tool: drag one to move it, click it to edit it (its handles then resize it).",
+      "Edit text: drag a line of text to move it; click it to edit it as before.",
+      "Paste puts objects on the page you’re looking at.",
+    ],
+  },
+  {
     version: "2.44.0",
     date: "2026-11-23",
     notes: ["The More menu links to Margin’s source code on GitHub too, so it’s reachable on phones, where the status bar is hidden."],
@@ -574,6 +585,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.44.0";
+const VERSION = "2.45.0";
 
 export { CHANGELOG, VERSION };

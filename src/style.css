@@ -919,10 +919,13 @@ button {
 .ov {
   touch-action: pan-x pan-y;
 }
-.ov[data-tool=select] .abox:not(.markup) {
+/* objects that a finger drags; empty page space still scrolls */
+.ov[data-tool=select] .obox,
+.ov .oframe,
+.ov[data-tool=form] .fbox,
+.ov[data-tool=link] .lbox.edit {
   touch-action: none;
 }
-.ov[data-tool=arrange],
 .ov[data-tool=draw],
 .ov[data-tool=rect],
 .ov[data-tool=ellipse],
@@ -957,7 +960,10 @@ button {
   box-shadow: 0 0 0 2px var(--sel);
   background: var(--sel-soft);
 }
-.ov[data-tool=arrange] {
+.ov[data-tool=select] {
+  cursor: default;
+}
+.oframe.still {
   cursor: default;
 }
 .obox {
@@ -2125,7 +2131,7 @@ body.hide-comments .comments {
   box-shadow: 0 0 0 1px #fff9;
   pointer-events: none;
 }
-.ov[data-tool=arrange] .cropsel {
+.ov[data-tool=select] .cropsel {
   z-index: 5;
 }
 .creply {

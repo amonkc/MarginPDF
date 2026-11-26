@@ -1,4 +1,4 @@
-import { unionRect, ANNOT, isTextMarkup, FIELD } from '../engine/pdfium';
+import { unionRect, ANNOT, FIELD } from '../engine/pdfium';
 import { normalizeRuns, decodeRichText, colorHex, hexToRgba, applySpanStyle, richToHtml, richFromPlain, writeRichText, htmlToRich, plainText } from '../engine/richtext';
 import { loadFont, fontCss, removeObjects, parseStyleCode, styleCode, writeText, loadFace, needsShaping, removeById, drawFieldAppearance, resolveFace, guessFontKey, replaceObjectText, fontByKey } from '../engine/text';
 import { toast, rgbCss, modal, svg, h } from './dom';
@@ -83,8 +83,6 @@ class Interact {
   editor: EditorState | null = null;
   onEditor: (editor: EditorState | null) => void = () => {
   };
-  onSelect: () => void = () => {
-  };
   onNoteCreated: (page: number, index: number) => void = () => {
   };
   /** Ctrl/Cmd+B/I/U ("b" | "i" | "u") or Ctrl/Cmd+Shift+X ("x") inside the editor */
@@ -122,30 +120,29 @@ class Interact {
     pv.ov.replaceChildren();
     pv.ov.dataset.tool = this.app.tool;
     const tool = this.app.tool;
-    if (tool === "arrange") {
-      this.arrange?.overlay(pv);
+    if (tool === "select") {
+      // Objects to select; on top of them, links to follow and form fields to fill.
+      if (this.arrange && !this.arrange.overlay(pv)) return;
+      this.links?.overlay(pv, false);
+      this.fieldControls(pv);
       return;
     }
     if (tool === "crop") {
       this.crop?.overlay(pv);
       return;
     }
+    // Form field and Link draw their own boxes; the selected field or link gets a frame with resize handles.
     if (tool === "link") {
       this.links?.overlay(pv, true);
+      this.arrange?.overlay(pv, false);
       return;
     }
     if (tool === "form") {
       this.forms?.overlay(pv);
+      this.arrange?.overlay(pv, false);
       return;
     }
-    if (tool === "select") {
-      for (const annot of this.v.annotsOf(pv)) {
-        const box = pv.tf.box(annot.rect), selected = this.app.selectedAnnot?.page === pv.index && this.app.selectedAnnot.index === annot.index;
-        pv.ov.append(h("div", { class: "abox" + (selected ? " sel" : "") + (isTextMarkup(annot.subtype) ? " markup" : ""), "data-annot": String(annot.index), title: (annot.contents || "").slice(0, 140), style: { left: box.x + "px", top: box.y + "px", width: Math.max(box.w, 6) + "px", height: Math.max(box.h, 6) + "px" } }));
-      }
-      this.fieldControls(pv);
-      this.links?.overlay(pv, false);
-    } else if (tool === "edittext") {
+    if (tool === "edittext") {
       for (const run of groupTextRuns(this.v.textsOf(pv))) {
         const box = pv.tf.box(run.bounds);
         pv.ov.append(h("div", { class: "tbox" + (run.block ? " block" : ""), "data-obj": String(run.objs[0].index), title: "Click to edit", style: { left: box.x - 2 + "px", top: box.y - 2 + "px", width: box.w + 4 + "px", height: box.h + 4 + "px" } }));
@@ -205,16 +202,14 @@ class Interact {
     }
     const tool = this.app.tool, at = this.v.toPage(pv, e), now = performance.now(), prev = this.lastDown;
     this.lastDown = { t: now, x: e.clientX, y: e.clientY, page: pv.index };
-    if (tool === "select" && prev && prev.page === pv.index && now - prev.t < 450 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 6) {
+    // A second click in the same spot (no modifier keys: Shift/Ctrl/Alt-clicks select) is a double-click.
+    if (tool === "select" && prev && prev.page === pv.index && now - prev.t < 450 && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 6 && !(e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)) {
       this.lastDown = null;
-      this.dbl(e);
-      return;
+      if (this.dbl(e)) return;
     }
     const drag = (ev: PointerEvent, view: PageView, move: DragFn, up: DragFn) => this.drag(ev, view, move, up);
     switch (tool) {
       case "select":
-        return this.selectDown(e, pv);
-      case "arrange":
         return this.arrange?.down(e, pv);
       case "edittext":
         return this.editTextDown(e, pv);
@@ -236,9 +231,8 @@ class Interact {
       case "redact":
         return this.redactDown(e, pv);
       case "form":
-        return this.forms?.down(e, pv, drag);
       case "link":
-        return this.links?.down(e, pv, drag);
+        return this.fieldOrLinkDown(e, pv, tool, drag);
       case "textbox":
         return this.textbox?.down(e, pv, drag);
       case "note":
@@ -250,6 +244,30 @@ class Interact {
       case "crop":
         return this.crop?.down(e, pv);
     }
+  }
+  /**
+   * Form field and Link tools: the selected one's handles resize it; a field or link is moved by dragging and
+   * edited by clicking; empty space draws a new one.
+   */
+  fieldOrLinkDown(e: PointerEvent, pv: PageView, tool: "form" | "link", drag: (ev: PointerEvent, view: PageView, move: DragFn, up: DragFn) => void): void {
+    const target = e.target as HTMLElement, arrange = this.arrange;
+    if (arrange && arrange.onHandle(target)) return arrange.down(e, pv);
+    const hit = target.closest<HTMLElement>(tool === "form" ? ".fbox" : ".lbox"), frame = target.closest<HTMLElement>(".oframe[data-k]");
+    if (arrange && (hit || frame)) {
+      const index = hit ? +(tool === "form" ? hit.dataset.field! : hit.dataset.link!) : +frame!.dataset.k!.slice(1);
+      arrange.press(e, pv, "a" + index, () => {
+        if (tool === "form") {
+          const field = this.v.fieldsOf(pv).find((f: FieldInfo) => f.index === index);
+          if (field) this.forms?.editDialog(pv.index, field);
+        } else {
+          const link = this.links?.of(pv.index).find((l) => l.index === index);
+          if (link) this.links?.editDialog(pv.index, link);
+        }
+      });
+      return;
+    }
+    if (arrange?.sel) arrange.clear();
+    return tool === "form" ? this.forms?.down(e, pv, drag) : this.links?.down(e, pv, drag);
   }
   /**
    * Captures the pointer on the page overlay and reports moves (at most once per frame) and the release in
@@ -285,49 +303,28 @@ class Interact {
     ov.addEventListener("pointerup", onUp);
     ov.addEventListener("pointercancel", onUp);
   }
-  /** Select tool: selects the annotation under the pointer and drags it (markup annotations are not movable). */
-  selectDown(e: PointerEvent, pv: PageView): void {
-    const boxEl = (e.target as HTMLElement).closest<HTMLElement>(".abox");
-    if (!boxEl) {
-      if (this.app.selectedAnnot) {
-        this.app.selectedAnnot = null;
-        this.refreshOverlays();
-        this.onSelect();
-      }
-      return;
-    }
-    const index = +boxEl.dataset.annot!;
-    this.app.selectedAnnot = { page: pv.index, index };
-    this.refreshOverlays();
-    this.onSelect();
-    const annot = this.v.annotsOf(pv).find((a: AnnotInfo) => a.index === index);
-    if (!annot || isTextMarkup(annot.subtype)) return;
-    // the overlay was rebuilt above, so look the box up again
-    const start = this.v.toPage(pv, e), moved = pv.ov.querySelector<HTMLElement>(`.abox[data-annot="${index}"]`)!, left0 = parseFloat(moved.style.left), top0 = parseFloat(moved.style.top);
-    const x0 = e.clientX, y0 = e.clientY;
-    this.drag(e, pv, (_pt, ev) => {
-      moved.style.left = left0 + (ev.clientX - x0) + "px";
-      moved.style.top = top0 + (ev.clientY - y0) + "px";
-    }, (end) => {
-      if (!(dist(end, start) < 1.5)) {
-        this.app.mutate("Move annotation", { pages: [pv.index] }, () => {
-          this.app.doc.moveAnnot(pv.index, index, end.x - start.x, end.y - start.y);
-        }).catch((err: Error) => toast(err.message, "err"));
-      }
-    });
-  }
-  /** Double-click with Select: edit a text box, otherwise open the annotation's comment (smallest one under the pointer). */
-  dbl(e: PointerEvent): void {
+  /**
+   * Double-click with Select: on a text box or added text, edit its text; on another annotation, open its
+   * comment; on the page's own text, switch to Edit text and edit that text. Returns false when there is
+   * nothing to edit (the press then works as a single click).
+   */
+  dbl(e: PointerEvent): boolean {
     const pv = this.pvFrom(e);
-    if (!pv || this.app.tool !== "select") return;
-    const boxEl = (e.target as HTMLElement).closest<HTMLElement>(".abox"), at = this.v.toPage(pv, e), hit: number | undefined = boxEl ? +boxEl.dataset.annot! : this.v.annotsOf(pv).filter((a: AnnotInfo) => !isTextMarkup(a.subtype) && at.x >= a.rect.l && at.x <= a.rect.r && at.y >= a.rect.b && at.y <= a.rect.t).sort((a: AnnotInfo, b: AnnotInfo) => (a.rect.r - a.rect.l) * (a.rect.t - a.rect.b) - (b.rect.r - b.rect.l) * (b.rect.t - b.rect.b))[0]?.index;
-    if (hit == null) return;
-    const index = hit;
-    if (this.v.annotsOf(pv).find((a: AnnotInfo) => a.index === index)?.subtype === ANNOT.FREETEXT && this.textbox) {
-      this.textbox.edit(pv, index);
-      return;
+    if (!pv || this.app.tool !== "select" || !this.arrange) return false;
+    const ovRect = pv.ov.getBoundingClientRect(), hit = this.arrange.stackAt(pv, e.clientX - ovRect.left, e.clientY - ovRect.top)[0];
+    if (hit?.kind === "annot") {
+      e.preventDefault();
+      if (this.v.annotsOf(pv).find((a: AnnotInfo) => a.index === hit.annot)?.subtype === ANNOT.FREETEXT && this.textbox) this.textbox.edit(pv, hit.annot!);
+      else this.onNoteCreated(pv.index, hit.annot!);
+      return true;
     }
-    this.onNoteCreated(pv.index, index);
+    if (hit?.kind === "image") return false;
+    const at = this.v.toPage(pv, e), runs = groupTextRuns(this.v.textsOf(pv)), run = hit?.kind === "block" ? runs.find((r) => r.block && r.objs[0].margin?.id === hit.block) : runs.filter((r) => !r.block && at.x >= r.bounds.l - 2 && at.x <= r.bounds.r + 2 && at.y >= r.bounds.b - 2 && at.y <= r.bounds.t + 2).sort((a, b) => (a.bounds.r - a.bounds.l) * (a.bounds.t - a.bounds.b) - (b.bounds.r - b.bounds.l) * (b.bounds.t - b.bounds.b))[0];
+    if (!run) return false;
+    e.preventDefault();
+    this.app.setTool("edittext");
+    this.editRun(pv, run.objs[0].index);
+    return true;
   }
   /** Highlight / underline / strikeout: sweep across text; a highlight can also be a dragged area. */
   markupDown(e: PointerEvent, pv: PageView, tool: "highlight" | "underline" | "strike"): void {
@@ -382,14 +379,19 @@ class Interact {
       }
     });
   }
-  /** Stamp tool: place the chosen stamp, then switch to Move & resize with it selected. */
+  /** Switches to Select with the item just placed (`key`, an ArrangeItem key) selected. */
+  selectAfterPlacing(pv: PageView, key: string): void {
+    this.app.setTool("select");
+    if (!this.arrange) return;
+    this.arrange.sel = { page: pv.index, key };
+    this.arrange.extra = [];
+    this.arrange.refresh();
+    this.arrange.onChange();
+  }
+  /** Stamp tool: place the chosen stamp, then switch to Select with it selected. */
   async stampDown(pv: PageView, at: Pt): Promise<void> {
     const index = await placeStamp(this.app, pv, at);
-    if (index != null && this.arrange) {
-      this.arrange.sel = { page: pv.index, key: "a" + index };
-      this.arrange.extra = [];
-      this.app.setTool("arrange");
-    }
+    if (index != null) this.selectAfterPlacing(pv, "a" + index);
   }
   /** Redaction marks: over text (sweep) or an area, per the redact mode setting. */
   redactDown(e: PointerEvent, pv: PageView): void {
@@ -640,7 +642,7 @@ class Interact {
       this.placeImage(pv, image, box);
     });
   }
-  /** Inserts an image into the box (overlay pixels), then selects it with Move & resize. */
+  /** Inserts an image into the box (overlay pixels), then selects it with Select. */
   async placeImage(pv: PageView, image: DecodedImage, box: { x: number; y: number; w: number; h: number }): Promise<void> {
     const scale = this.scaleOf(pv);
     try {
@@ -649,11 +651,7 @@ class Interact {
       await this.app.mutate("Insert image", { pages: [pv.index] }, () => {
         objIndex = this.app.doc.addImage(pv.index, imageMatrix(pv, box), src);
       });
-      if (this.arrange && objIndex >= 0) {
-        this.arrange.sel = { page: pv.index, key: "o" + objIndex };
-        this.arrange.extra = [];
-        this.app.setTool("arrange");
-      }
+      if (objIndex >= 0) this.selectAfterPlacing(pv, "o" + objIndex);
     } catch (err) {
       toast((err as Error).message || "The image could not be placed", "err");
     }
@@ -700,7 +698,16 @@ class Interact {
     const boxEl = (e.target as HTMLElement).closest<HTMLElement>(".tbox");
     if (!boxEl) return;
     e.preventDefault();
-    const objIndex = +boxEl.dataset.obj!, runs = groupTextRuns(this.v.textsOf(pv)), run = runs.find((r) => r.objs[0].index === objIndex);
+    const objIndex = +boxEl.dataset.obj!, run = groupTextRuns(this.v.textsOf(pv)).find((r) => r.objs[0].index === objIndex);
+    if (!run) return;
+    // Drag to move the text; click to edit it.
+    const key = run.block ? "b" + run.objs[0].margin!.id : "l" + objIndex;
+    if (this.arrange) this.arrange.press(e, pv, key, () => this.editRun(pv, objIndex), false);
+    else this.editRun(pv, objIndex);
+  }
+  /** Opens the editor on the text run starting with page object `objIndex` (a paragraph, a line or added text). */
+  editRun(pv: PageView, objIndex: number): void {
+    const runs = groupTextRuns(this.v.textsOf(pv)), run = runs.find((r) => r.objs[0].index === objIndex);
     if (!run) return;
     if (run.block) {
       const rd = blockRichDoc(run);
@@ -1148,7 +1155,7 @@ function trimCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement | null {
 /** Ribbon metadata for each tool: label, keyboard shortcut, icon name and the hint shown while it is active. */
 export type ToolInfo = { label: string; key: string; icon: string; hint: string };
 
-const TOOL_INFO: Record<string, ToolInfo> = { select: { label: "Select", key: "V", icon: "select", hint: "Select, move or delete annotations. Fill form fields." }, arrange: { label: "Move & resize", key: "A", icon: "arrange", hint: "Click text, an image or an annotation. Drag to move, drag a corner to resize. Alt turns off snapping." }, edittext: { label: "Edit text", key: "E", icon: "edittext", hint: "Click any text on the page to edit it." }, addtext: { label: "Add text", key: "T", icon: "addtext", hint: "Click where the new text should start." }, highlight: { label: "Highlight", key: "H", icon: "highlight", hint: "Drag across text to highlight it." }, underline: { label: "Underline", key: "U", icon: "underline", hint: "Drag across text to underline it." }, strike: { label: "Strikeout", key: "K", icon: "strike", hint: "Drag across text to strike it out." }, draw: { label: "Draw", key: "D", icon: "draw", hint: "Draw freehand on the page." }, rect: { label: "Rectangle", key: "R", icon: "rect", hint: "Drag to draw a rectangle." }, form: { label: "Form field", key: "F", icon: "formfield", hint: "Pick a field type, then drag a box (or click). Click a field to rename it, change its options or delete it." }, redact: { label: "Redact", key: "X", icon: "redact", hint: "Sweep across text or drag over an area to mark it. Nothing is removed until you apply." }, link: { label: "Link", key: "G", icon: "link", hint: "Sweep across text or drag a box to add a link. Click a link to edit or remove it." }, stamp: { label: "Stamp", key: "P", icon: "stamp", hint: "Pick a stamp, then click the page." }, textbox: { label: "Text box & callout", key: "B", icon: "textbox", hint: "Drag a box, or click, then type. Double-click a text box with Select to edit it." }, line: { label: "Line & arrow", key: "L", icon: "line", hint: "Drag to draw. Shift keeps it to 45° steps." }, ellipse: { label: "Ellipse", key: "O", icon: "ellipse", hint: "Drag to draw an ellipse." }, note: { label: "Note", key: "N", icon: "note", hint: "Click to pin a sticky note." }, sign: { label: "Signature", key: "S", icon: "sign", hint: "Click the page where the signature should go." }, crop: { label: "Crop pages", key: "C", icon: "crop", hint: "Drag a rectangle around the part of the page to keep." }, image: { label: "Image", key: "I", icon: "image", hint: "Click to place at natural size, or drag a box to size it. You can also paste or drop an image." } };
+const TOOL_INFO: Record<string, ToolInfo> = { select: { label: "Select", key: "V", icon: "select", hint: "Click an object to select it: drag to move, drag a handle to resize. Shift-click or drag a box to select more. Double-click to edit text or a comment." }, edittext: { label: "Edit text", key: "E", icon: "edittext", hint: "Click text to edit it, or drag it to move it." }, addtext: { label: "Add text", key: "T", icon: "addtext", hint: "Click where the new text should start." }, highlight: { label: "Highlight", key: "H", icon: "highlight", hint: "Drag across text to highlight it." }, underline: { label: "Underline", key: "U", icon: "underline", hint: "Drag across text to underline it." }, strike: { label: "Strikeout", key: "K", icon: "strike", hint: "Drag across text to strike it out." }, draw: { label: "Draw", key: "D", icon: "draw", hint: "Draw freehand on the page." }, rect: { label: "Rectangle", key: "R", icon: "rect", hint: "Drag to draw a rectangle." }, form: { label: "Form field", key: "F", icon: "formfield", hint: "Pick a field type, then drag a box (or click). Click a field to rename it or change its options; drag it to move it." }, redact: { label: "Redact", key: "X", icon: "redact", hint: "Sweep across text or drag over an area to mark it. Nothing is removed until you apply." }, link: { label: "Link", key: "G", icon: "link", hint: "Sweep across text or drag a box to add a link. Click a link to edit or remove it; drag it to move it." }, stamp: { label: "Stamp", key: "P", icon: "stamp", hint: "Pick a stamp, then click the page." }, textbox: { label: "Text box & callout", key: "B", icon: "textbox", hint: "Drag a box, or click, then type. Double-click a text box with Select to edit it." }, line: { label: "Line & arrow", key: "L", icon: "line", hint: "Drag to draw. Shift keeps it to 45° steps." }, ellipse: { label: "Ellipse", key: "O", icon: "ellipse", hint: "Drag to draw an ellipse." }, note: { label: "Note", key: "N", icon: "note", hint: "Click to pin a sticky note." }, sign: { label: "Signature", key: "S", icon: "sign", hint: "Click the page where the signature should go." }, crop: { label: "Crop pages", key: "C", icon: "crop", hint: "Drag a rectangle around the part of the page to keep." }, image: { label: "Image", key: "I", icon: "image", hint: "Click to place at natural size, or drag a box to size it. You can also paste or drop an image." } };
 
 /**
  * Replaces a run's text with plain `text` (used by find & replace). A Margin block is redrawn with its stored

@@ -128,7 +128,7 @@ Option 3`;
 `);
       rows.push(h("label", { class: "stack-field" }, h("span", { class: "rlabel", text: "Options, one per line" }), optionsInput));
     }
-    rows.push(h("p", { class: "modal-text", text: "Move or resize fields with Move & resize (A). Fill them in with Select (V)." }));
+    rows.push(h("p", { class: "modal-text", text: "With the Form field tool, drag a field to move it; after clicking it, drag its handles to resize it. Fill fields in with Select (V)." }));
     const choice = await modal({ title: `Edit ${(FIELD_TYPE_LABELS[field.type] || "field").toLowerCase()}`, body: h("div", { class: "stack" }, ...rows), actions: [{ id: "delete", label: "Delete field", danger: true }, { id: "cancel", label: "Cancel" }, { id: "ok", label: "Save", primary: true }] }), doc = this.app.doc;
     if (choice === "delete") {
       await this.app.mutate("Delete field", { pages: [page] }, () => doc.deleteAnnot(page, field.index)).catch((err) => toast(err.message, "err"));

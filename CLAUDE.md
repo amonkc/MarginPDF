@@ -15,6 +15,9 @@ Margin is a browser PDF editor (PDFium-wasm + HarfBuzz, Vite + TypeScript) deliv
   section on page 1, written by the built app (run against `serve:web`). Edit the script, not the PDF.
 - `src/ui/` — viewer, tools (`interact.ts`, `arrange.ts`, `crop.ts`, `textbox.ts`, `links.ts`, `forms.ts`),
   panels, dialogs, context menu, clipboard.
+- Select tool = `arrange.ts` (`Arrange`): selects/moves/resizes annotations, pictures and added text. Items are
+  scoped per tool (`inScope`): Form field and Link tools move their fields/links with it (`press`), Edit text drags
+  lines. `app.selectedAnnot` is a view of its selection (`app.annotSelection`), not separate state.
 - `src/app.ts` — document state, settings, undo history. `src/main.ts` — boot, ribbon, menus, shortcuts.
 - `src/session.ts` — keeps unsaved work (file buffers + undo history) in IndexedDB `margin-session` through a
   refresh or a closed tab; never stores passwords.
