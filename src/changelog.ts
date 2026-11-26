@@ -10,6 +10,14 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.47.0",
+    date: "2026-11-26",
+    notes: [
+      "After you draw a rectangle, ellipse, line or text box, or place a signature, Margin switches to Select with it selected, so you can resize or move it straight away (as stamps, images and notes already did). Highlight, underline, strikeout, draw, redact, form fields and links stay on for the next one.",
+      "Double-click a tool to keep it on and place several in a row; a dot marks it. Esc or V goes back to Select.",
+    ],
+  },
+  {
     version: "2.46.0",
     date: "2026-11-26",
     notes: [
@@ -595,6 +603,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.46.0";
+const VERSION = "2.47.0";
 
 export { CHANGELOG, VERSION };

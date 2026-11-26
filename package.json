@@ -2,7 +2,7 @@
   "name": "margin-pdf-editor",
   "private": true,
   "license": "MIT",
-  "version": "2.46.0",
+  "version": "2.47.0",
   "homepage": "https://marginpdf.amon-kc.workers.dev/",
   "repository": { "type": "git", "url": "https://github.com/amonkc/MarginPDF" },
   "type": "module",

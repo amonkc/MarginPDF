@@ -643,5 +643,26 @@ log('more button toggles its menu', toggles);
   await c.close();
 }
 
+// AD. after placing: one-off tools hand over to Select with the new thing selected; drawing tools stay; double-click keeps a tool on
+{
+  const c = await b.newContext({ viewport: { width: 1280, height: 900 } }); const pg = await c.newPage();
+  pg.on('pageerror', (e) => errors.push('after placing: ' + e.message));
+  await pg.goto(url); await pg.waitForSelector('#boot', { state: 'detached', timeout: 90000 }); await pg.waitForTimeout(400);
+  const g = await pg.locator('.page[data-index="0"]').boundingBox();
+  const state = () => pg.evaluate(() => { const { app, arrange } = window.__margin; return [app.tool, arrange.selected().map((i) => i.label).join(), app.toolLocked].join('|'); });
+  const drag = async (x, y, dx, dy) => { await pg.mouse.move(g.x + x, g.y + y); await pg.mouse.down(); await pg.mouse.move(g.x + x + dx, g.y + y + dy, { steps: 5 }); await pg.mouse.up(); await pg.waitForTimeout(500); };
+  const out = [];
+  for (const key of ['r', 'o', 'l']) { await pg.keyboard.press(key); await drag(400, 150, 80, 50); out.push(key + ':' + await state()); }
+  await pg.keyboard.press('b'); await drag(380, 250, 150, 40); await pg.keyboard.type('Box'); await pg.mouse.click(g.x + 20, g.y + 20); await pg.waitForTimeout(900); out.push('b:' + await state());
+  await pg.keyboard.press('d'); await drag(400, 350, 80, 30); out.push('d:' + await state());
+  await pg.locator('#rail .tool[data-tool=rect]').dblclick(); await pg.waitForTimeout(200);
+  const n = await pg.evaluate(() => window.__margin.app.doc.annots(0).length);
+  await drag(100, 150, 60, 40); await drag(100, 220, 60, 40);
+  out.push('kept on:' + await state() + '|' + (await pg.evaluate(() => window.__margin.app.doc.annots(0).length) - n) + '|' + await pg.locator('#rail .tool.locked').count());
+  await pg.keyboard.press('Escape'); await pg.waitForTimeout(200); out.push('esc:' + await state());
+  log('after placing', out);
+  await c.close();
+}
+
 log('errors', errors);
 await b.close();

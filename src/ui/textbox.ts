@@ -24,6 +24,9 @@ class TextBoxes {
   open: OpenEditor | null = null;
   onChange: () => void = () => {
   };
+  /** A new text box (annotation `index`) was saved on `pv`. */
+  onPlaced: (pv: PageView, index: number) => void = () => {
+  };
   constructor(app: App, viewer: Viewer) {
     this.app = app;
     this.v = viewer;
@@ -128,10 +131,12 @@ class TextBoxes {
         // New callouts take the height of their text; other boxes only ever grow.
         const next = { ...ft, text: text }, textH = await freeTextHeight(next), height = annot == null && ft.tip ? textH : Math.max(textH, ft.box.t - ft.box.b);
         next.box = { ...ft.box, b: ft.box.t - height };
+        let created = -1;
         await this.app.mutate(annot == null ? ft.tip ? "Callout" : "Text box" : "Edit text box", { pages: [page] }, async () => {
-          const index = annot ?? doc.createFreeText(page, this.app.settings.author);
+          const index = annot ?? (created = doc.createFreeText(page, this.app.settings.author));
           await renderFreeText(doc, page, index, next);
         });
+        if (created >= 0) this.onPlaced(pv, created);
       } catch (err) {
         toast((err as Error).message, "err");
       }

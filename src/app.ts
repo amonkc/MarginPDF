@@ -148,8 +148,11 @@ class App {
   emit(change: Change): void {
     for (const listener of this.listeners) listener(change);
   }
-  setTool(tool: string): void {
+  /** The tool stays on after placing something (double-click on the tool) instead of switching to Select. */
+  toolLocked = false;
+  setTool(tool: string, locked = false): void {
     this.tool = tool;
+    this.toolLocked = locked;
     this.selectedAnnot = null;
     for (const listener of this.toolListeners) listener(tool);
   }

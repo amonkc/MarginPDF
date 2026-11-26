@@ -373,18 +373,30 @@ class Interact {
       pv.svg.replaceChildren(tool === "rect" ? svg("rect", { x: box.x, y: box.y, width: box.w, height: box.h, ...paint }) : svg("ellipse", { cx: box.x + box.w / 2, cy: box.y + box.h / 2, rx: box.w / 2, ry: box.h / 2, ...paint }));
     }, (end) => {
       if (!(Math.abs(end.x - start.x) < 3 || Math.abs(end.y - start.y) < 3)) {
-        this.app.mutate(tool === "rect" ? "Rectangle" : "Ellipse", { pages: [pv.index] }, () => this.app.doc.addShape(pv.index, tool === "rect" ? ANNOT.SQUARE : ANNOT.CIRCLE, rectFrom2(start, end), shapeColor, shapeWidth, this.app.settings.author, { fill: shapeFill, opacity: shapeOpacity })).catch((err: Error) => toast(err.message, "err"));
+        const before = this.app.doc.annots(pv.index).length;
+        this.app.mutate(tool === "rect" ? "Rectangle" : "Ellipse", { pages: [pv.index] }, () => this.app.doc.addShape(pv.index, tool === "rect" ? ANNOT.SQUARE : ANNOT.CIRCLE, rectFrom2(start, end), shapeColor, shapeWidth, this.app.settings.author, { fill: shapeFill, opacity: shapeOpacity })).then(() => this.selectNewestAnnot(pv, before, tool)).catch((err: Error) => toast(err.message, "err"));
       }
     });
   }
-  /** Switches to Select with the item just placed (`key`, an ArrangeItem key) selected. */
-  selectAfterPlacing(pv: PageView, key: string): void {
+  /**
+   * After placing something with a tool used once at a time (shapes, lines, text boxes, signatures, stamps,
+   * images, notes): switches to Select with it (`key`, an ArrangeItem key) selected, so its handles are right
+   * there. Not when the tool was kept on (double-click on it), or when another tool was picked meanwhile.
+   */
+  selectAfterPlacing(pv: PageView, key: string, from = this.app.tool): boolean {
+    if (this.app.toolLocked || this.app.tool !== from) return false;
     this.app.setTool("select");
-    if (!this.arrange) return;
+    if (!this.arrange) return true;
     this.arrange.sel = { page: pv.index, key };
     this.arrange.extra = [];
     this.arrange.refresh();
     this.arrange.onChange();
+    return true;
+  }
+  /** Selects the newest annotation on the page after placing it (see `selectAfterPlacing`). */
+  selectNewestAnnot(pv: PageView, countBefore: number, from: string): void {
+    const annots = this.app.doc.annots(pv.index);
+    if (annots.length > countBefore) this.selectAfterPlacing(pv, "a" + annots[annots.length - 1].index, from);
   }
   /** Stamp tool: place the chosen stamp, then switch to Select with it selected. */
   async stampDown(pv: PageView, at: Pt): Promise<void> {
@@ -433,7 +445,8 @@ class Interact {
     }, (at, ev) => {
       end = snap(at, ev);
       if (!(dist(start, end) < 3)) {
-        this.app.mutate(ends[1] === "None" ? "Line" : "Arrow", { pages: [pv.index] }, () => this.app.doc.addLine(pv.index, start, end, lineColor, lineWidth, ends, this.app.settings.author)).catch((err: Error) => toast(err.message, "err"));
+        const before = this.app.doc.annots(pv.index).length;
+        this.app.mutate(ends[1] === "None" ? "Line" : "Arrow", { pages: [pv.index] }, () => this.app.doc.addLine(pv.index, start, end, lineColor, lineWidth, ends, this.app.settings.author)).then(() => this.selectNewestAnnot(pv, before, "line")).catch((err: Error) => toast(err.message, "err"));
       }
     });
   }
@@ -442,12 +455,7 @@ class Interact {
     const countBefore = this.app.doc.annots(pv.index).length;
     await this.app.mutate("Add note", { pages: [pv.index] }, () => this.app.doc.addNote(pv.index, { x: at.x - 10, y: at.y + 10 }, "", this.app.settings.noteColor, this.app.settings.author));
     const annots = this.app.doc.annots(pv.index), added = annots[annots.length - 1];
-    this.app.setTool("select");
-    if (added && annots.length > countBefore) {
-      this.app.selectedAnnot = { page: pv.index, index: added.index };
-      this.refreshOverlays();
-      this.onNoteCreated(pv.index, added.index);
-    }
+    if (added && annots.length > countBefore && this.selectAfterPlacing(pv, "a" + added.index, "note")) this.onNoteCreated(pv.index, added.index);
   }
   /** Saved signatures, newest first (at most 6, kept in localStorage). */
   saved: SavedSignature[] = [];
@@ -581,9 +589,9 @@ class Interact {
       toast("The signature is still loading. Click again.", "warn");
       return;
     }
-    const rgba = sig.rgba, w = 150, h = w * (sig.h / sig.w), rect = { l: at.x - w / 2, r: at.x + w / 2, t: at.y + h / 2, b: at.y - h / 2 };
+    const rgba = sig.rgba, w = 150, h = w * (sig.h / sig.w), rect = { l: at.x - w / 2, r: at.x + w / 2, t: at.y + h / 2, b: at.y - h / 2 }, before = this.app.doc.annots(pv.index).length;
     await this.app.mutate("Place signature", { pages: [pv.index] }, () => this.app.doc.addImageStamp(pv.index, rect, rgba, sig.w, sig.h, this.app.settings.author)).catch((err: Error) => toast(err.message, "err"));
-    this.app.setTool("select");
+    this.selectNewestAnnot(pv, before, "sign");
   }
   /** Signs a signature field: the signature is fitted inside the field with a small inset, slightly below centre. */
   async signField(pv: PageView, field: Rect): Promise<void> {

@@ -147,6 +147,7 @@ async function main(): Promise<void> {
   crop.onChange = () => renderRibbon();
   const textBoxes = new TextBoxes(app, viewer);
   interact.textbox = textBoxes;
+  textBoxes.onPlaced = (view, index) => void interact.selectAfterPlacing(view, "a" + index, "textbox");
   interact.links = new Links(app, viewer);
   interact.forms = new Forms(app, viewer);
   textBoxes.onChange = () => renderRibbon();
@@ -220,6 +221,8 @@ async function main(): Promise<void> {
     })(),
   );
   const rail = $("#rail");
+  /** Tools that switch to Select after placing one thing, unless kept on. */
+  const PLACES_ONCE = new Set(["textbox", "line", "rect", "ellipse", "note", "image", "stamp", "sign"]);
   [
     ["select", "edittext"],
     ["highlight", "underline", "strike"],
@@ -240,8 +243,10 @@ async function main(): Promise<void> {
             type: "button",
             "data-tool": tool,
             "aria-label": `${info.label} (${info.key})`,
-            title: `${info.label}  ${info.key}`,
+            title: `${info.label}  ${info.key}${PLACES_ONCE.has(tool) ? "\nDouble-click to keep it on" : ""}`,
             onclick: () => app.setTool(tool),
+            // Double-click keeps a tool on after placing something (otherwise it switches to Select).
+            ondblclick: () => PLACES_ONCE.has(tool) && app.setTool(tool, true),
           },
           icon(info.icon),
           h("span", { class: "tool-label", text: info.label }),
@@ -2079,6 +2084,7 @@ async function main(): Promise<void> {
   app.onTool((tool) => {
     $$(".tool").forEach((button) => {
       button.classList.toggle("on", button.dataset.tool === tool);
+      button.classList.toggle("locked", button.dataset.tool === tool && app.toolLocked);
       button.setAttribute("aria-pressed", String(button.dataset.tool === tool));
     });
     document.body.dataset.tool = tool;

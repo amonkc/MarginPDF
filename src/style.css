@@ -557,6 +557,17 @@ button {
   background: var(--accent);
   color: var(--accent-ink);
 }
+/* kept on (double-clicked): a dot in the corner */
+.tool.locked::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
 .tool-label {
   position: fixed;
   left: var(--lx, 64px);
