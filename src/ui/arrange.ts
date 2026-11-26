@@ -13,7 +13,7 @@ import type { PageView, Viewer } from './viewer';
 
 /**
  * One thing that can be selected on a page (Select tool; form fields and links in their own tools; text lines
- * in Edit text).
+ * with the Text tool).
  * - `annot`: an annotation, form field or link (`annot` is its index)
  * - `image`: an image or vector graphic page object (`objs` holds its index)
  * - `block`: the page objects of a Margin text block, header/footer, watermark or background (`block` is its id)
@@ -62,7 +62,7 @@ const SNAP_PX = 5;
  * Object selection for the Select tool: selects annotations, pictures and added text (click, Shift/Ctrl-click,
  * marquee), moves and resizes them with snapping guides, and provides align/distribute/match size, stacking
  * order, image rotate/flip/crop/replace, delete, duplicate and clipboard data. The Form field and Link tools use
- * it to move and resize their fields and links, and Edit text to drag lines of text (`press`).
+ * it to move and resize their fields and links, and the Text tool to drag lines of text (`press`).
  *
  * Which items a page offers depends on the tool (`inScope`). The selection is `sel` (the primary item, last
  * clicked) plus `extra` (other keys on the same page).
@@ -88,7 +88,7 @@ class Arrange {
   }
   /**
    * Whether the current tool works on `item`: Select on annotations (not fields or links), pictures and added
-   * text; Form field on fields; Link on links; Edit text on text. Other tools (and code acting on an annotation
+   * text; Form field on fields; Link on links; Text on text. Other tools (and code acting on an annotation
    * directly) see everything.
    */
   inScope(item: ArrangeItem): boolean {
@@ -244,7 +244,7 @@ class Arrange {
   selectAll(): void {
     const pv = this.v.views[this.sel?.page ?? this.app.currentPage];
     if (!pv) return;
-    const items = this.itemsOf(pv).filter((it) => !it.fixed && (it.kind !== "block" || !/^(wm|bg|hf-)/.test(it.block || "")));
+    const items = this.itemsOf(pv).filter((it) => !it.fixed && (it.kind !== "block" || !/^(wm$|bg$|hf-)/.test(it.block || "")));
     if (items.length) {
       this.sel = { page: pv.index, key: items[0].key };
       this.extra = items.slice(1).map((it) => it.key);
@@ -458,7 +458,7 @@ class Arrange {
       const b: Box = band, inside = this.itemsOf(pv).filter((it) => {
         const box = pv.tf.box(it.bounds), cx = box.x + box.w / 2, cy = box.y + box.h / 2;
         return cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
-      }).filter((it) => !it.fixed && (it.kind !== "block" || !/^(wm|bg|hf-)/.test(it.block || "")));
+      }).filter((it) => !it.fixed && (it.kind !== "block" || !/^(wm$|bg$|hf-)/.test(it.block || "")));
       if (!inside.length) return;
       const keys = new Set(additive && this.sel?.page === pv.index ? [this.sel.key, ...this.extra] : []);
       for (const it of inside) keys.add(it.key);

@@ -1,5 +1,6 @@
 // Builds public/welcome.pdf: scripts/welcome/base.pdf plus a "More languages" section on page 1, written with
-// Margin itself (so each sample is a real Margin text block, set in the font for its script, editable in the app).
+// Margin itself (so each sample is a real Margin text block, set in the font for its script, editable in the app),
+// and the tool instructions in base.pdf brought up to date (REWORD: its lines replaced in their own font).
 //
 // Usage: npm run build && npm run serve:web, then node scripts/make-welcome.mjs http://localhost:8788/
 import { createRequire } from 'module';
@@ -34,7 +35,12 @@ const block = (x, top, text, opts) => ({
 });
 const blocks = [
   block(72, HEAD_TOP, 'More languages', { font: 'helv', size: 12, color: INK, b: true }),
-  block(190, HEAD_TOP, 'Add text and Edit text work in these too, each in a font made for it.', { font: 'helv', size: 11, color: GREY }),
+  block(190, HEAD_TOP, 'The Text tool works in these too, each in a font made for it.', { font: 'helv', size: 11, color: GREY }),
+];
+/** [line in base.pdf, what it says now]: the instructions follow the app's tools. */
+const REWORD = [
+  ['Choose Edit text (E), then click any line on this page and change it.', 'Choose Text (T), then click any line on this page and change it.'],
+  ['Choose Add text (T), click anywhere, and type. Thai and English both work.', 'With Text (T), click an empty spot and type. Thai and English both work.'],
 ];
 LEFT.forEach(([name, sample, font], i) => {
   blocks.push(block(72, ROW_TOP + i * PITCH, name, { font: 'helv', size: 12, color: INK, b: true }));
@@ -53,15 +59,21 @@ page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(url);
 await page.waitForSelector('#boot', { state: 'detached', timeout: 90000 });
 const base = [...fs.readFileSync(new URL('./welcome/base.pdf', import.meta.url))];
-const out = await page.evaluate(async ([base, blocks]) => {
-  const { app, writeRichText } = window.__margin;
+const out = await page.evaluate(async ([base, blocks, reword]) => {
+  const { app, writeRichText, replaceObjectText } = window.__margin;
   app.open(new Uint8Array(base), 'Welcome to Margin.pdf');
   const fallbacks = [];
+  await app.mutate('Reword', { pages: [0] }, () => {
+    for (const [from, to] of reword) {
+      const obj = app.doc.textObjects(0).find((o) => o.text.trim() === from);
+      if (!obj || !replaceObjectText(app.doc, 0, obj.index, to)) fallbacks.push('reword: ' + from);
+    }
+  });
   await app.mutate('More languages', { pages: [0] }, async () => {
     for (const rt of blocks) fallbacks.push(...(await writeRichText(app.doc, 0, rt)).fallbacks);
   });
   return { bytes: Array.from(app.exportBytes()), fallbacks };
-}, [base, blocks]);
+}, [base, blocks, REWORD]);
 if (errors.length || out.fallbacks.length) throw new Error(`errors ${JSON.stringify(errors)}, fonts that needed help ${out.fallbacks}`);
 fs.writeFileSync(new URL('../public/welcome.pdf', import.meta.url), Buffer.from(out.bytes));
 console.log('public/welcome.pdf', out.bytes.length, 'bytes');

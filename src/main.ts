@@ -9,7 +9,7 @@ import { CHANGELOG, VERSION } from "./changelog";
 import { loadAsset } from "./engine/assets";
 import { Growable } from "./engine/growable";
 import { ENGINE_FULL, ANNOT, Pdfium, ANNOT_NAMES, PdfError, isEngineAbort } from "./engine/pdfium";
-import { loadFont, parseStyleCode, styleCode, initShaper, FONTS, FONT_GROUPS, fontByKey, onBigFontLoading, splitByCoverage } from "./engine/text";
+import { loadFont, parseStyleCode, styleCode, initShaper, FONTS, FONT_GROUPS, fontByKey, onBigFontLoading, splitByCoverage, replaceObjectText } from "./engine/text";
 import { writeRichText } from "./engine/richtext";
 import { Arrange } from "./ui/arrange";
 import { Bookmarks } from "./ui/bookmarks";
@@ -159,7 +159,7 @@ async function main(): Promise<void> {
   const thumbs = new Thumbs($("#thumbs"), app);
   const commentsPanel = new CommentsPanel($("#comments"), app);
   // debugging/test hook: the main objects, reachable from the console and the e2e tests
-  (window as unknown as { __margin: unknown }).__margin = { app, viewer, ix: interact, arrange, Growable: Growable, splitByCoverage, writeRichText };
+  (window as unknown as { __margin: unknown }).__margin = { app, viewer, ix: interact, arrange, Growable: Growable, splitByCoverage, writeRichText, replaceObjectText };
   const bookmarks = new Bookmarks(app, viewer);
   const pagesPane = h(
     "div",
@@ -221,7 +221,7 @@ async function main(): Promise<void> {
   );
   const rail = $("#rail");
   [
-    ["select", "edittext", "addtext"],
+    ["select", "edittext"],
     ["highlight", "underline", "strike"],
     ["textbox", "draw", "line", "rect", "ellipse", "note"],
     ["image", "stamp", "sign", "link"],
@@ -401,7 +401,7 @@ async function main(): Promise<void> {
   /** Fill colours offered for rectangles and ellipses: white plus the highlight palette. */
   const SHAPE_FILLS: RGBA[] = [[255, 255, 255, 255], ...PALETTES.highlight];
   /**
-   * Ribbon controls for typed text (Add text / Edit text): font, size, bold/italic/underline/strike, list and
+   * Ribbon controls for typed text (Text tool): font, size, bold/italic/underline/strike, list and
    * alignment buttons, line spacing and colour. They act on the open editor, or on the defaults when none is open.
    */
   function textStyleItems(): Node[] {
@@ -1320,31 +1320,21 @@ async function main(): Promise<void> {
         swatchRow(PALETTES.highlight, settings.noteColor, (color) => (settings.noteColor = color), "Note color"),
         h("span", { class: "hint", text: info.hint }),
       );
-    else if (tool === "addtext")
+    else if (tool === "edittext")
+      // The style controls set the style of new text, or of the text being edited.
       items.push(
         ...textStyleItems(),
         h("span", {
           class: "hint",
-          text: interact.editor
-            ? "Select words to style them · Ctrl+Enter or click outside to finish"
-            : "Click to type, or drag across to set a width the text wraps to.",
+          text: !interact.editor
+            ? "Click text to edit it, or drag it to move it. Click an empty spot to type new text (drag across to set a wrap width)."
+            : interact.editor.kind === "object"
+              ? "Enter to save · Shift+Enter adds a line · Esc cancels"
+              : interact.editor.kind === "new"
+                ? "Select words to style them · Ctrl+Enter or click outside to finish"
+                : "Select words to style them · Ctrl+Enter or click outside to save · Esc cancels",
         }),
       );
-    else if (tool === "edittext")
-      if (interact.editor) {
-        items.push(
-          ...textStyleItems(),
-          h("span", {
-            class: "hint",
-            text:
-              interact.editor.kind === "object"
-                ? "Enter to save · Shift+Enter adds a line · Esc cancels"
-                : "Select words to style them · Ctrl+Enter or click outside to save · Esc cancels",
-          }),
-        );
-      } else {
-        items.push(h("span", { class: "hint", text: info.hint }));
-      }
     else if (tool === "crop") {
       const sel = crop.sel;
       const multiPages = multiSelectedPages();
@@ -2101,7 +2091,7 @@ async function main(): Promise<void> {
     interact.refreshOverlays();
     commentsPanel.markSelected();
     renderRibbon();
-    if (tool === "addtext" || tool === "edittext") {
+    if (tool === "edittext") {
       loadFont(fontByKey(app.settings.textFont)).catch(() => {});
     }
     if (tool !== "image" && interact.image) {
@@ -4025,8 +4015,8 @@ async function main(): Promise<void> {
     }
   });
   /** Tool name by its single-key shortcut (lower case). */
-  const TOOL_BY_KEY = Object.fromEntries(
-    (Object.entries(TOOL_INFO) as Array<[string, ToolInfo]>).map(([tool, info]) => [info.key.toLowerCase(), tool]),
+  const TOOL_BY_KEY: Record<string, string> = Object.fromEntries(
+    [...(Object.entries(TOOL_INFO) as Array<[string, ToolInfo]>).map(([tool, info]) => [info.key.toLowerCase(), tool]), ["e", "edittext"]], // E: the old Edit text key
   );
   document.addEventListener("keydown", (event) => {
     const inField = (event.target as Element).closest<HTMLElement>("input,textarea,select,[contenteditable]");

@@ -938,7 +938,7 @@ button {
 .ov[data-tool=highlight],
 .ov[data-tool=underline],
 .ov[data-tool=strike],
-.ov[data-tool=addtext] {
+.ov[data-tool=edittext] {
   cursor: text;
 }
 .ov[data-tool=note],

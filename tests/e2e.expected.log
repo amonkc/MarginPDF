@@ -1,4 +1,4 @@
-version v2.45.0
+version v2.46.0
 pages [3,[612,792],[612,792],[612,792]]
 search Margin 2
 annots0 [[9,96,397,"246,214,74"],[1,520,680,"246,214,74"]]
@@ -27,7 +27,7 @@ textbox ["Box text here"]
 search added 1
 edit text [1,0]
 arrange ribbon Align left edges,Align centres,Align right edges,Align tops,Align middles,Align bottoms,Distribute across (3 or more),Distribute down (3 or more),Match width of the last clicked,Match height of the last clicked,Match size of the last clicked,Bring to front (Ctrl+Shift+]),Bring forward (Ctrl+]),Send backward (Ctrl+[),Send to back (Ctrl+Shift+[)
-arrange menu 43 OBJECTS | Align |  | Distribute across | Distribute down | Match | Bring to front | Bring forward | Send backward | Send to back | Cut | Copy | Paste | Duplicate 43 | Delete 43 objects
+arrange menu 44 OBJECTS | Align |  | Distribute across | Distribute down | Match | Bring to front | Bring forward | Send backward | Send to back | Cut | Copy | Paste | Duplicate 44 | Delete 44 objects
 page op Rotate right [3,[792,612]]
 page op Insert blank page after [4,[792,612]]
 undo pages [3,[612,792]]
@@ -107,5 +107,5 @@ save all images ["a-images.zip","a-p1-1.jpg, a-p2-1.png"]
 repair [true,false,"damaged.pdf",3,"This PDF was damaged (its index points to the wrong place). Margin recovered it; save a repaired copy to open it in other apps.Save repaired copy","damaged-repaired.pdf",true]
 detect form fields ["Found 5 places to fill in on page 4: 4 text fields and 1 checkbox.","Comments:6, Date of birth:6, Full name:6, I agree to the terms:2, Phone:6","0,5,0","form","Detect form fields"]
 save as text ["Welcome to Margin.md","# Welcome to Margin | # A form to fill",27,true,true,"Welcome to Margin.txt",false,27]
-select tool ["select,edittext,addtext","Image",510,"Highlight",0,"nothing","edittext,true","true,false","true,false",5]
+select tool ["select,edittext,highlight","Image",510,"Highlight",0,"nothing","edittext,true","true,false","true,false",5,"1,First box"]
 errors []

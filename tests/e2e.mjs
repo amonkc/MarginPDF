@@ -94,7 +94,7 @@ await page.keyboard.type('Box text here'); await page.mouse.click(g.x + 20, g.y 
 log('textbox', await M(() => { const d = window.__margin.app.doc; const a = d.annots(0).filter((x) => x.subtype === 3); return a.map((x) => d.readFreeText(0, x.index)?.text ?? null); }));
 // add text
 await page.keyboard.press('t'); await page.waitForTimeout(150);
-await page.mouse.click(g.x + 100, g.y + 640); await page.waitForTimeout(400);
+await page.mouse.click(g.x + g.width * 300 / 612, g.y + g.height * 36 / 792); await page.waitForTimeout(400); // an empty spot at the top
 await page.keyboard.type('Added line of text'); await page.mouse.click(g.x + 20, g.y + 20); await page.waitForTimeout(1200);
 log('search added', await M(() => window.__margin.app.doc.search('Added line of text').length));
 // edit text
@@ -602,7 +602,7 @@ log('more button toggles its menu', toggles);
   };
   const [mdName, md] = await save('md'), [txtName, txt] = await save('txt');
   const blocks = md.trim().split(/\n\n/);
-  log('save as text', [mdName, blocks.filter((x) => x.startsWith('#')).join(' | '), blocks.length, blocks.some((x) => /^ภาษาไทย.*ฐานวรรณยุกต์/.test(x)), md.includes('Edit text Choose Edit text (E)'), txtName, /^#/m.test(txt), txt.trim().split(/\n\n/).length]);
+  log('save as text', [mdName, blocks.filter((x) => x.startsWith('#')).join(' | '), blocks.length, blocks.some((x) => /^ภาษาไทย.*ฐานวรรณยุกต์/.test(x)), md.includes('Edit text Choose Text (T)'), txtName, /^#/m.test(txt), txt.trim().split(/\n\n/).length]);
   await c.close();
 }
 
@@ -634,6 +634,11 @@ log('more button toggles its menu', toggles);
   q = await at(1, field); await drag(q, 40, 20);
   out.push(await E((l) => { const { viewer } = window.__margin; return [Math.round(viewer.fieldsOf(viewer.views[1]).find((f) => f.name === 'email').rect.l - l) > 30, !!document.querySelector('.modal')].join(); }, field.l));
   await pg.keyboard.press('v'); await pg.waitForTimeout(300); out.push(await E(() => document.querySelectorAll('.page[data-index="1"] .fld').length));
+  // Text box tool on an existing text box edits it instead of stacking a new one
+  q = await at(0, { l: 300, r: 500, b: 700, t: 740 });
+  await pg.keyboard.press('b'); await drag({ x: q.x - 100, y: q.y - 20 }, 200, 40); await pg.keyboard.type('First box'); await pg.mouse.click(5, 450); await pg.waitForTimeout(800);
+  await pg.keyboard.press('b'); await pg.mouse.click(q.x - 60, q.y - 5); await pg.waitForTimeout(500);
+  out.push(await E(() => [window.__margin.app.doc.annots(0).filter((a) => a.subtype === 3).length, document.querySelector('textarea')?.value].join()));
   log('select tool', out);
   await c.close();
 }

@@ -42,7 +42,14 @@ class TextBoxes {
       this.open.done(true);
       return;
     }
-    const start: Pt = this.v.toPage(pv, ev), callout: boolean = this.app.settings.ftCallout, zoom: number = this.v.zoom, boxFor = (p: Pt): Rect => {
+    // On an existing text box: edit it rather than stack a new one on top.
+    const at: Pt = this.v.toPage(pv, ev), existing = this.boxAt(pv, at);
+    if (existing != null) {
+      ev.preventDefault();
+      this.edit(pv, existing);
+      return;
+    }
+    const start: Pt = at, callout: boolean = this.app.settings.ftCallout, zoom: number = this.v.zoom, boxFor = (p: Pt): Rect => {
       if (!callout) return Math.abs(p.x - start.x) < 6 && Math.abs(p.y - start.y) < 6 ? { l: start.x, r: start.x + DEFAULT_BOX_WIDTH, t: start.y, b: start.y - this.app.settings.ftSize * 2.2 } : { l: Math.min(start.x, p.x), r: Math.max(start.x, p.x), b: Math.min(start.y, p.y), t: Math.max(start.y, p.y) };
       // Callout: a fixed-size box beside the pointer, on the side away from the tip.
       const w = DEFAULT_BOX_WIDTH * 0.8, h = this.app.settings.ftSize * 2.2, left = p.x >= start.x ? p.x : p.x - w, top = p.y >= start.y ? p.y + h : p.y;
@@ -66,6 +73,15 @@ class TextBoxes {
       const box = boxFor(last);
       this.edit(pv, null, { box: box, tip: callout ? start : undefined, text: "", style: this.style() });
     });
+  }
+  /** The text box annotation whose box (not its callout line) contains `at`, frontmost first, or null. */
+  boxAt(pv: PageView, at: Pt): number | null {
+    const boxes = this.v.annotsOf(pv).filter((a: { subtype: number }) => a.subtype === 3).reverse();
+    for (const a of boxes as { index: number; rect: Rect }[]) {
+      const box = this.app.doc.readFreeText(pv.index, a.index)?.box || a.rect;
+      if (at.x >= box.l && at.x <= box.r && at.y >= box.b && at.y <= box.t) return a.index;
+    }
+    return null;
   }
   /**
    * Opens the in-place editor for text box `annot` on `pv`, or for the new box `data` when `annot` is null.

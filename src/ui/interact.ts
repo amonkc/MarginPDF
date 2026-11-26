@@ -213,8 +213,6 @@ class Interact {
         return this.arrange?.down(e, pv);
       case "edittext":
         return this.editTextDown(e, pv);
-      case "addtext":
-        return this.addTextDown(e, pv);
       case "highlight":
       case "underline":
       case "strike":
@@ -305,7 +303,7 @@ class Interact {
   }
   /**
    * Double-click with Select: on a text box or added text, edit its text; on another annotation, open its
-   * comment; on the page's own text, switch to Edit text and edit that text. Returns false when there is
+   * comment; on the page's own text, switch to the Text tool and edit that text. Returns false when there is
    * nothing to edit (the press then works as a single click).
    */
   dbl(e: PointerEvent): boolean {
@@ -690,13 +688,14 @@ class Interact {
     image.bitmap.close();
   }
   /**
-   * Edit text tool: opens the editor on the clicked run. Margin blocks are edited as their rich text; other
+   * Text tool: opens the editor on the clicked run. Margin blocks are edited as their rich text; other
    * text is gathered into a paragraph (lines of the same style), with bold/italic guessed from the font name
    * or slant and the matrix's skew removed.
    */
+  /** Text tool: on text, a click edits it and a drag moves it; on an empty spot, a click (or drag) starts new text. */
   editTextDown(e: PointerEvent, pv: PageView): void {
     const boxEl = (e.target as HTMLElement).closest<HTMLElement>(".tbox");
-    if (!boxEl) return;
+    if (!boxEl) return this.addTextDown(e, pv);
     e.preventDefault();
     const objIndex = +boxEl.dataset.obj!, run = groupTextRuns(this.v.textsOf(pv)).find((r) => r.objs[0].index === objIndex);
     if (!run) return;
@@ -717,7 +716,7 @@ class Interact {
     const lines = paragraphOf(runs, run), first = lines[0].objs[0], baseFont = first.fontName.replace(/^[A-Z]{6}\+/, ""), bold = /bold|black|heavy|semibold|demi/i.test(baseFont), italic = /italic|oblique/i.test(baseFont) || Math.abs(first.matrix[2]) > 0.05 * Math.abs(first.matrix[3]), text = joinLines(lines.map((l) => l.text)), scale = matrixScale(first.matrix), matrix = unskewMatrix(first.matrix), left = Math.min(...lines.map((l) => l.bounds.l)), multi = lines.length > 1, rd: RichText = { v: 1, paras: [[{ t: text, ...(bold ? { b: bold } : {}), ...(italic ? { i: italic } : {}) }]], font: guessFontKey(first.fontName, text), size: first.fontSize, color: colorHex(first.color), align: "left", lh: multi ? Math.max(1, (lines[0].objs[0].matrix[5] - lines[1].objs[0].matrix[5]) / (first.fontSize * scale)) : 1.5, width: multi ? (Math.max(...lines.map((l) => l.bounds.r)) - left) / scale * 1.02 : undefined, bm: multi ? [matrix[0], matrix[1], matrix[2], matrix[3], left, matrix[5]] : matrix };
     this.openEditor(pv, { kind: multi ? "para" : "object", objs: lines.flatMap((l) => l.objs), rd, scale }, unionRect(lines.map((l) => l.bounds)));
   }
-  /** Add text tool: click (or drag to set a wrap width over 24 pt) to open an editor for new text. */
+  /** New text: click (or drag to set a wrap width over 24 pt) to open an editor for it. */
   addTextDown(e: PointerEvent, pv: PageView): void {
     const start = this.v.toPage(pv, e);
     let cur = start;
@@ -1155,7 +1154,7 @@ function trimCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement | null {
 /** Ribbon metadata for each tool: label, keyboard shortcut, icon name and the hint shown while it is active. */
 export type ToolInfo = { label: string; key: string; icon: string; hint: string };
 
-const TOOL_INFO: Record<string, ToolInfo> = { select: { label: "Select", key: "V", icon: "select", hint: "Click an object to select it: drag to move, drag a handle to resize. Shift-click or drag a box to select more. Double-click to edit text or a comment." }, edittext: { label: "Edit text", key: "E", icon: "edittext", hint: "Click text to edit it, or drag it to move it." }, addtext: { label: "Add text", key: "T", icon: "addtext", hint: "Click where the new text should start." }, highlight: { label: "Highlight", key: "H", icon: "highlight", hint: "Drag across text to highlight it." }, underline: { label: "Underline", key: "U", icon: "underline", hint: "Drag across text to underline it." }, strike: { label: "Strikeout", key: "K", icon: "strike", hint: "Drag across text to strike it out." }, draw: { label: "Draw", key: "D", icon: "draw", hint: "Draw freehand on the page." }, rect: { label: "Rectangle", key: "R", icon: "rect", hint: "Drag to draw a rectangle." }, form: { label: "Form field", key: "F", icon: "formfield", hint: "Pick a field type, then drag a box (or click). Click a field to rename it or change its options; drag it to move it." }, redact: { label: "Redact", key: "X", icon: "redact", hint: "Sweep across text or drag over an area to mark it. Nothing is removed until you apply." }, link: { label: "Link", key: "G", icon: "link", hint: "Sweep across text or drag a box to add a link. Click a link to edit or remove it; drag it to move it." }, stamp: { label: "Stamp", key: "P", icon: "stamp", hint: "Pick a stamp, then click the page." }, textbox: { label: "Text box & callout", key: "B", icon: "textbox", hint: "Drag a box, or click, then type. Double-click a text box with Select to edit it." }, line: { label: "Line & arrow", key: "L", icon: "line", hint: "Drag to draw. Shift keeps it to 45° steps." }, ellipse: { label: "Ellipse", key: "O", icon: "ellipse", hint: "Drag to draw an ellipse." }, note: { label: "Note", key: "N", icon: "note", hint: "Click to pin a sticky note." }, sign: { label: "Signature", key: "S", icon: "sign", hint: "Click the page where the signature should go." }, crop: { label: "Crop pages", key: "C", icon: "crop", hint: "Drag a rectangle around the part of the page to keep." }, image: { label: "Image", key: "I", icon: "image", hint: "Click to place at natural size, or drag a box to size it. You can also paste or drop an image." } };
+const TOOL_INFO: Record<string, ToolInfo> = { select: { label: "Select", key: "V", icon: "select", hint: "Click an object to select it: drag to move, drag a handle to resize. Shift-click or drag a box to select more. Double-click to edit text or a comment." }, edittext: { label: "Text", key: "T", icon: "edittext", hint: "Click text to edit it, or drag it to move it. Click an empty spot to add new text." }, highlight: { label: "Highlight", key: "H", icon: "highlight", hint: "Drag across text to highlight it." }, underline: { label: "Underline", key: "U", icon: "underline", hint: "Drag across text to underline it." }, strike: { label: "Strikeout", key: "K", icon: "strike", hint: "Drag across text to strike it out." }, draw: { label: "Draw", key: "D", icon: "draw", hint: "Draw freehand on the page." }, rect: { label: "Rectangle", key: "R", icon: "rect", hint: "Drag to draw a rectangle." }, form: { label: "Form field", key: "F", icon: "formfield", hint: "Pick a field type, then drag a box (or click). Click a field to rename it or change its options; drag it to move it." }, redact: { label: "Redact", key: "X", icon: "redact", hint: "Sweep across text or drag over an area to mark it. Nothing is removed until you apply." }, link: { label: "Link", key: "G", icon: "link", hint: "Sweep across text or drag a box to add a link. Click a link to edit or remove it; drag it to move it." }, stamp: { label: "Stamp", key: "P", icon: "stamp", hint: "Pick a stamp, then click the page." }, textbox: { label: "Text box & callout", key: "B", icon: "textbox", hint: "Drag a box, or click, then type. Click a text box to edit it." }, line: { label: "Line & arrow", key: "L", icon: "line", hint: "Drag to draw. Shift keeps it to 45° steps." }, ellipse: { label: "Ellipse", key: "O", icon: "ellipse", hint: "Drag to draw an ellipse." }, note: { label: "Note", key: "N", icon: "note", hint: "Click to pin a sticky note." }, sign: { label: "Signature", key: "S", icon: "sign", hint: "Click the page where the signature should go." }, crop: { label: "Crop pages", key: "C", icon: "crop", hint: "Drag a rectangle around the part of the page to keep." }, image: { label: "Image", key: "I", icon: "image", hint: "Click to place at natural size, or drag a box to size it. You can also paste or drop an image." } };
 
 /**
  * Replaces a run's text with plain `text` (used by find & replace). A Margin block is redrawn with its stored

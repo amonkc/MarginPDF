@@ -10,6 +10,16 @@ export interface ChangelogEntry {
 /** Release history shown by the version button, newest first. */
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "2.46.0",
+    date: "2026-11-26",
+    notes: [
+      "One Text tool (T) instead of Edit text and Add text: click text to edit it, drag it to move it, or click an empty spot to type new text. E still picks it too.",
+      "Text box & callout: clicking an existing text box with the tool edits it instead of putting a new box on top.",
+      "Fixed: some added text was left out of Select all and box selection.",
+      "The welcome document describes the Text tool.",
+    ],
+  },
+  {
     version: "2.45.0",
     date: "2026-11-26",
     notes: [
@@ -585,6 +595,6 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 /** Current app version (matches the newest CHANGELOG entry). */
-const VERSION = "2.45.0";
+const VERSION = "2.46.0";
 
 export { CHANGELOG, VERSION };
